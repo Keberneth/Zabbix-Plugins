@@ -137,7 +137,7 @@ sudo systemctl restart zabbix-agent2
 
 ------------------------------------------------------------------------
 
-# 🧪 Manual Testing
+# 🤓 Manual Testing
 
 All plugins support standalone testing mode.
 
