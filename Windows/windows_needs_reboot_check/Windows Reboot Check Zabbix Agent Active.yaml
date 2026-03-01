@@ -1,0 +1,27 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 03dcddf1b1614c19b5bb56702371fe63
+      template: 'Windows Reboot Check Zabbix Agent Active'
+      name: 'Windows Reboot Check Zabbix Agent Active'
+      vendor:
+        name: Iver
+        version: 7.0-0-0
+      groups:
+        - name: Templates
+      items:
+        - uuid: c8a4d99d73b24a1e80c9a7b3e2df5623
+          name: 'Windows Reboot Check'
+          type: ZABBIX_ACTIVE
+          key: system.needs_reboot
+          delay: 60m
+          triggers:
+            - uuid: ce2aa9cbc4ce42bf860b1765bca0ba1f
+              expression: 'last(/Windows Reboot Check Zabbix Agent Active/system.needs_reboot)=1'
+              name: '{HOST.HOST} Reboot is required'
+              priority: AVERAGE
+              tags:
+                - tag: 'Customer Read'

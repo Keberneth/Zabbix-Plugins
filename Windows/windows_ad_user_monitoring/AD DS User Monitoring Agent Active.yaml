@@ -1,0 +1,356 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 685216637ec94d8db2d3af5a07493950
+      template: 'AD DS User Monitoring Agent Active'
+      name: 'AD DS User Monitoring Agent Active'
+      description: |
+        Monitor Active Directory users via Zabbix Agent 2 (Go plugin).
+        
+        Functions included:
+        - Locked-out users (trigger per locked account)
+        - Disabled users older than N days (trigger per disabled account)
+        - Users with passwords expiring within N days (trigger per account)
+        - Users with account expiration within N days (accountExpires) (trigger per account)
+        
+        OU scoping:
+        - Set {$AD.SEARCH.BASES} to a base DN (OU/container) to limit searches.
+        - Multiple OUs are supported by separating base DNs with ';' or '|'.
+          Example:
+            OU=Admins,DC=example,DC=com;OU=Service Accounts,DC=example,DC=com
+        
+        Note on 'Execute now':
+        - The master items in this template are Zabbix Agent (active) checks.
+          Zabbix cannot 'Execute now' active checks, so running 'Execute now'
+          on dependent discovery rules will show an error. Discovery works normally
+          when the agent sends the master item value on schedule.
+      vendor:
+        name: Iver
+        version: 7.0-0-2
+      groups:
+        - name: Templates
+      items:
+        - uuid: 17048fd394844e4f8dd0c8ce60268fa1
+          name: 'AD Disabled Users JSON'
+          type: ZABBIX_ACTIVE
+          key: 'DisabledUsers[{$AD.DISABLED.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          delay: 24h
+          value_type: TEXT
+          trends: '0'
+          status: DISABLED
+          timeout: 600s
+        - uuid: edbf9ec7c3bc484e8674fc7e7cce9c29
+          name: 'AD Locked Users JSON'
+          type: ZABBIX_ACTIVE
+          key: 'LockedOutUsers["{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          delay: 12h
+          value_type: TEXT
+          trends: '0'
+          timeout: 90s
+        - uuid: 00c2d5fc82204ff994810d278a2426f5
+          name: 'AD Password Expiring Users JSON'
+          type: ZABBIX_ACTIVE
+          key: 'PasswordExpiringUsers[{$AD.PASSWORD.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          delay: 12h
+          value_type: TEXT
+          trends: '0'
+          timeout: 90s
+        - uuid: c8d26984c0ff4d7d8064e1d80a183e31
+          name: 'AD Users About To Be Disabled JSON'
+          type: ZABBIX_ACTIVE
+          key: 'UsersAboutToBeDisabled[{$AD.ACCOUNT.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          delay: 12h
+          value_type: TEXT
+          trends: '0'
+          timeout: 90s
+      discovery_rules:
+        - uuid: 5b3b6a343d0f425b824ad0328846ca8d
+          name: 'AD locked users'
+          type: DEPENDENT
+          key: LockedUsers
+          delay: '0'
+          item_prototypes:
+            - uuid: 98af745d9bb840beb8c23d6dab50f2c8
+              name: 'AD User: [{#USER}] Locked'
+              type: DEPENDENT
+              key: 'LockedOutUsers[{#USER}]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var text = (value || "").trim();
+                      if (!text) return 0;   // no data => not locked
+                      
+                      var arr;
+                      try { arr = JSON.parse(text); } catch (e) { return 0; }
+                      if (Object.prototype.toString.call(arr) !== "[object Array]") {
+                        arr = arr ? [arr] : [];
+                      }
+                      for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].sAMAccountName === "{#USER}") return 1;
+                      }
+                      return 0;
+              master_item:
+                key: 'LockedOutUsers["{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+              tags:
+                - tag: 'Customer Read'
+              trigger_prototypes:
+                - uuid: 58f26b377d2743c18b168170664ed935
+                  expression: 'last(/AD DS User Monitoring Agent Active/LockedOutUsers[{#USER}])=1'
+                  name: 'Account {#USER} is locked'
+                  priority: AVERAGE
+          master_item:
+            key: 'LockedOutUsers["{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  // value can be "", "[]", "null" or JSON array
+                  var text = (value || "").trim();
+                  if (!text) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+                  
+                  var data = [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var u = arr[i];
+                    data.push({
+                      "{#USER}": u.sAMAccountName,
+                      "{#UPN}": u.UserPrincipalName,
+                      "{#DN}": u.DistinguishedName,
+                      "{#LOCKSINCE}": u.LockoutTimeUtc
+                    });
+                  }
+                  return JSON.stringify({ "data": data });
+        - uuid: ba83d57bff764535809a98200516075d
+          name: 'AD users about to be disabled (account expiration)'
+          type: DEPENDENT
+          key: UsersAboutToDisable
+          delay: '0'
+          item_prototypes:
+            - uuid: 5f536d3f56594fb391096a305798740b
+              name: 'AD User: [{#USER}] About to be disabled'
+              type: DEPENDENT
+              key: 'UsersAboutToBeDisabled[{#USER}]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var text = (value || "").trim();
+                      if (!text) return 0;
+                      
+                      var arr;
+                      try { arr = JSON.parse(text); } catch (e) { return 0; }
+                      if (Object.prototype.toString.call(arr) !== "[object Array]") {
+                        arr = arr ? [arr] : [];
+                      }
+                      for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].sAMAccountName === "{#USER}") return 1;
+                      }
+                      return 0;
+              master_item:
+                key: 'UsersAboutToBeDisabled[{$AD.ACCOUNT.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+              tags:
+                - tag: 'Customer Read'
+              trigger_prototypes:
+                - uuid: d79392ff5546403fa110afb059445213
+                  expression: 'last(/AD DS User Monitoring Agent Active/UsersAboutToBeDisabled[{#USER}])=1'
+                  name: 'Account {#USER} expires in {#DAYS_TO_DISABLE} days (expires {#ACCOUNT_EXPIRES})'
+                  priority: WARNING
+          master_item:
+            key: 'UsersAboutToBeDisabled[{$AD.ACCOUNT.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var text = (value || "").trim();
+                  if (!text) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+                  
+                  var data = [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var u = arr[i];
+                    data.push({
+                      "{#USER}": u.sAMAccountName,
+                      "{#UPN}": u.UserPrincipalName,
+                      "{#DN}": u.DistinguishedName,
+                      "{#ACCOUNT_EXPIRES}": u.AccountExpiresUtc,
+                      "{#DAYS_TO_DISABLE}": u.DaysToDisable
+                    });
+                  }
+                  
+                  return JSON.stringify({ "data": data });
+        - uuid: 7184ef07d8bd40758b68c61dee9a5161
+          name: 'AD disabled users (older than N days)'
+          type: DEPENDENT
+          key: UsersDisabled
+          delay: '0'
+          item_prototypes:
+            - uuid: c17ef8dfcfd44485859941be2294df10
+              name: 'AD User: [{#USER}] Disabled'
+              type: DEPENDENT
+              key: 'ad.disabled.status[{#USER}]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var text = (value || "").trim();
+                      if (!text) return 0;
+                      
+                      var arr;
+                      try { arr = JSON.parse(text); } catch (e) { return 0; }
+                      if (Object.prototype.toString.call(arr) !== "[object Array]") {
+                        arr = arr ? [arr] : [];
+                      }
+                      for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].sAMAccountName === "{#USER}") return 1; // in list => disabled
+                      }
+                      return 0;
+              master_item:
+                key: 'DisabledUsers[{$AD.DISABLED.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+              trigger_prototypes:
+                - uuid: fa02091cba6b4b1d9c25222c32cac265
+                  expression: 'last(/AD DS User Monitoring Agent Active/ad.disabled.status[{#USER}])=1'
+                  name: 'Account {#USER} is disabled (since {#DISABLED_SINCE})'
+                  priority: INFO
+          master_item:
+            key: 'DisabledUsers[{$AD.DISABLED.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var text = (value || "").trim();
+                  if (!text) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+                  
+                  var data = [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var u = arr[i];
+                    data.push({
+                      "{#USER}": u.sAMAccountName,
+                      "{#UPN}": u.UserPrincipalName,
+                      "{#DN}": u.DistinguishedName,
+                      "{#DISABLED_SINCE}": u.DisabledSinceUtc,
+                      "{#DAYS_DISABLED}": u.DaysDisabled
+                    });
+                  }
+                  return JSON.stringify({ "data": data });
+        - uuid: e98d0f0b77874f37853f0a1ec57d3785
+          name: 'AD users with passwords expiring soon'
+          type: DEPENDENT
+          key: UsersPasswordExpiring
+          delay: '0'
+          item_prototypes:
+            - uuid: dfe6bab8a6cc4e99851baa5eae970543
+              name: 'AD User: [{#USER}] Password expiring'
+              type: DEPENDENT
+              key: 'PasswordExpiringUsers[{#USER}]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var text = (value || "").trim();
+                      if (!text) return 0;
+                      
+                      var arr;
+                      try { arr = JSON.parse(text); } catch (e) { return 0; }
+                      if (Object.prototype.toString.call(arr) !== "[object Array]") {
+                        arr = arr ? [arr] : [];
+                      }
+                      for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].sAMAccountName === "{#USER}") return 1;
+                      }
+                      return 0;
+              master_item:
+                key: 'PasswordExpiringUsers[{$AD.PASSWORD.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+              tags:
+                - tag: 'Customer Read'
+              trigger_prototypes:
+                - uuid: efa73771f3534a38b96d139d07b6ee7d
+                  expression: 'last(/AD DS User Monitoring Agent Active/PasswordExpiringUsers[{#USER}])=1'
+                  name: 'Password for {#USER} expires in {#DAYS_TO_EXPIRE} days (expires {#PWDEXPIRES})'
+                  priority: WARNING
+          master_item:
+            key: 'PasswordExpiringUsers[{$AD.PASSWORD.EXPIRES.IN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var text = (value || "").trim();
+                  if (!text) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) {
+                    return JSON.stringify({ "data": [] });
+                  }
+                  
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+                  
+                  var data = [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var u = arr[i];
+                    data.push({
+                      "{#USER}": u.sAMAccountName,
+                      "{#UPN}": u.UserPrincipalName,
+                      "{#DN}": u.DistinguishedName,
+                      "{#PWDEXPIRES}": u.PasswordExpiresUtc,
+                      "{#DAYS_TO_EXPIRE}": u.DaysToExpire
+                    });
+                  }
+                  
+                  return JSON.stringify({ "data": data });
+      macros:
+        - macro: '{$AD.ACCOUNT.EXPIRES.IN.DAYS}'
+          value: '7'
+          description: 'Account expiration threshold (days). Used by UsersAboutToBeDisabled[days,...].'
+        - macro: '{$AD.DISABLED.OLDER.THAN.DAYS}'
+          value: '30'
+          description: 'Disabled user threshold (days). Used by DisabledUsers[days,...].'
+        - macro: '{$AD.LDAP.SERVER}'
+          description: |
+            Optional: specify the domain controller to query (hostname/FQDN).
+            Leave empty to let Windows choose.
+        - macro: '{$AD.PASSWORD.EXPIRES.IN.DAYS}'
+          value: '7'
+          description: 'Password expiry threshold (days). Used by PasswordExpiringUsers[days,...].'
+        - macro: '{$AD.SEARCH.BASES}'
+          description: |
+            Base DN(s) to search (OU/container). Leave empty to search the whole domain.
+            Multiple base DNs can be separated with ';' or '|'.
+            Example: OU=Users,DC=example,DC=com;OU=Admins,DC=example,DC=com

@@ -1,0 +1,27 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 52c3704bd1c0460499492cdba8d9104b
+      template: 'Linux Reboot Check Zabbix Agent Active'
+      name: 'Linux Reboot Check Zabbix Agent Active'
+      vendor:
+        name: Iver
+        version: 7.0-0-0
+      groups:
+        - name: Templates
+      items:
+        - uuid: e8843c21d66d4bc19b19d788a901bac2
+          name: 'Linux Reboot Check'
+          type: ZABBIX_ACTIVE
+          key: system.needs_reboot
+          delay: 60m
+          triggers:
+            - uuid: 90564771aec5463c8c0f5325b9df9c83
+              expression: 'last(/Linux Reboot Check Zabbix Agent Active/system.needs_reboot)=1'
+              name: '{HOST.HOST} Reboot is required'
+              priority: AVERAGE
+              tags:
+                - tag: 'Customer Read'
