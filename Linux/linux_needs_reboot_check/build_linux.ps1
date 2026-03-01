@@ -1,5 +1,6 @@
 # Build the Zabbix Agent 2 loadable plugin for Linux (amd64) from Windows.
 # Run in the project folder (where main.go is).
+# powershell.exe -NoProfile -ExecutionPolicy Bypass -File build_linux.ps1
 
 $ErrorActionPreference = "Stop"
 
