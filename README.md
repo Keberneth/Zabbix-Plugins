@@ -70,16 +70,16 @@ Each plugin directory contains:
 
 ## Build Windows Binary
 
+Run the script in the plugin folder to get the binary plugin file for Zabbix<br>
+
 ``` bash
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
-go build -ldflags "-s -w" -o zabbix-agent2-<plugin>.exe .
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File build_windows.ps1
 ```
 
 ## Build Linux Binary
 
 ``` bash
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-go build -ldflags "-s -w" -o zabbix-agent2-<plugin> .
+./build_linux.sh
 ```
 
 ------------------------------------------------------------------------
