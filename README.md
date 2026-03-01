@@ -157,29 +157,3 @@ zabbix-agent2-<plugin>.exe --standalone --verbose
 ``` bash
 ./zabbix-agent2-<plugin> --standalone --verbose
 ```
-
-------------------------------------------------------------------------
-
-# 🔐 Security Recommendations
-
--   Build with `CGO_ENABLED=0` for static binaries\
--   Restrict write permissions to plugin directories\
--   Only administrators should modify plugin binaries or configuration
-    files\
--   Store CI/CD secrets securely
-
-------------------------------------------------------------------------
-
-# 📁 Example Repository Structure
-
-    plugins/
-     ├── application_inventory/
-     │   ├── main.go
-     │   ├── build_windows.ps1
-     │   ├── build_windows.sh
-     │   └── application_inventory.conf
-     ├── needs_reboot_check/
-     │   ├── main.go
-     │   └── needs_reboot_check.conf
-     └── binary/
-         └── zabbix-agent2-application_inventory.exe
