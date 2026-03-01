@@ -1,119 +1,185 @@
 # Zabbix Agent2 Go Plugins
 
-Zabbix Agent2 plugins written in Go.
+Production-ready Zabbix Agent2 plugins written in Go.
 
 Each plugin is compiled into a standalone binary:
 
-- `.exe` for Windows
-- Native binary for Linux
+-   `.exe` for Windows\
+-   Native binary for Linux
 
 No PowerShell or shell scripts are required at runtime.
 
----
+------------------------------------------------------------------------
 
 ## 📦 Requirements
 
-- Go 1.25 or newer
-- Zabbix Agent 2 (7.x recommended)
-- Windows Server 2016+ or modern Linux distribution (RHEL / SLES / Ubuntu)
+-   Go 1.25 or newer\
+-   Zabbix Agent 2 (7.x recommended)\
+-   Windows Server 2016+ or modern Linux distribution
 
----
+------------------------------------------------------------------------
 
 # 🛠 Install Go
 
 Install Go on the system used to compile the plugins.
 
-## Windows
+## 🪟 Windows
 
-1. Download Go from: https://go.dev/dl/
-2. Install using the MSI package.
-3. Verify installation:
+1.  Download Go from:\
+    https://go.dev/dl/
 
-```powershell
+2.  Install using the MSI package.
+
+3.  Verify installation:
+
+``` powershell
 go version
-Linux (Example Manual Installation)
+```
+
+Expected output example:
+
+``` text
+go version go1.25.7 windows/amd64
+```
+
+------------------------------------------------------------------------
+
+## 🐧 Linux
+
+Example manual installation:
+
+``` bash
 wget https://go.dev/dl/go1.25.7.linux-amd64.tar.gz
 sudo rm -rf /usr/local/go
 sudo tar -C /usr/local -xzf go1.25.7.linux-amd64.tar.gz
 echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
 source ~/.bashrc
 go version
+```
 
-Or install using your distribution package manager.
+------------------------------------------------------------------------
 
-🔨 Building Plugins
+# 🔨 Building Plugins
 
 Each plugin directory contains:
 
-main.go
+-   `main.go`
+-   Windows build script (`build_windows.ps1`)
+-   Linux build script (`build_windows.sh`)
+-   Plugin configuration file (`.conf`)
 
-Windows build script (build_windows.ps1)
+## Build Windows Binary
 
-Linux build script (build_windows.sh or similar)
-
-Plugin configuration file (.conf)
-
-To build manually:
-
-Build Windows Binary
+``` bash
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
 go build -ldflags "-s -w" -o zabbix-agent2-<plugin>.exe .
-Build Linux Binary
+```
+
+## Build Linux Binary
+
+``` bash
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 go build -ldflags "-s -w" -o zabbix-agent2-<plugin> .
-Build Flags Explained
-Flag	Purpose
-GOOS	Target operating system
-GOARCH	CPU architecture
-CGO_ENABLED=0	Static binary (recommended)
--s -w	Strip debug symbols (smaller binary)
-🪟 Install Plugin – Windows
+```
 
-Copy the compiled .exe file to:
+------------------------------------------------------------------------
 
-C:\Program Files\Zabbix Agent 2\
+# 🪟 Install Plugin -- Windows
 
-Copy the corresponding .conf file to:
+1.  Copy the compiled `.exe` file to:
 
-C:\Program Files\Zabbix Agent 2\conf.d\
+```{=html}
+<!-- -->
+```
+    C:\Program Files\Zabbix Agent 2\
 
-Restart Zabbix Agent 2:
+2.  Copy the corresponding `.conf` file to:
 
+```{=html}
+<!-- -->
+```
+    C:\Program Files\Zabbix Agent 2\conf.d\
+
+3.  Restart Zabbix Agent 2:
+
+``` powershell
 Restart-Service "Zabbix Agent 2"
+```
 
-Verify in the Zabbix Agent log that the plugin is loaded successfully.
+------------------------------------------------------------------------
 
-🐧 Install Plugin – Linux
+# 🐧 Install Plugin -- Linux
 
-Copy the compiled plugin binary to:
+1.  Copy the compiled plugin binary to:
 
-/usr/sbin/zabbix-agent2-plugin/
+```{=html}
+<!-- -->
+```
+    /usr/sbin/zabbix-agent2-plugin/
 
-Copy the corresponding .conf file to:
+2.  Copy the corresponding `.conf` file to:
 
-/etc/zabbix/conf.d/plugins/
+```{=html}
+<!-- -->
+```
+    /etc/zabbix/conf.d/plugins/
 
-Set correct ownership and permissions:
+3.  Set secure permissions:
 
+``` bash
 sudo chown root:zabbix /usr/sbin/zabbix-agent2-plugin/zabbix-agent2-<plugin>
 sudo chmod 750 /usr/sbin/zabbix-agent2-plugin/zabbix-agent2-<plugin>
 
 sudo chown root:zabbix /etc/zabbix/conf.d/plugins/<plugin>.conf
 sudo chmod 640 /etc/zabbix/conf.d/plugins/<plugin>.conf
+```
 
-Restart Zabbix Agent 2:
+4.  Restart Agent:
 
+``` bash
 sudo systemctl restart zabbix-agent2
+```
 
-Verify the agent log for successful plugin initialization.
+------------------------------------------------------------------------
 
-🧪 Manual Testing
+# 🧪 Manual Testing
 
 All plugins support standalone testing mode.
 
-Windows
-zabbix-agent2-<plugin>.exe --standalone --verbose
-Linux
-./zabbix-agent2-<plugin> --standalone --verbose
+## Windows
 
-This will output the metric result directly to the console for validation.
+``` powershell
+zabbix-agent2-<plugin>.exe --standalone --verbose
+```
+
+## Linux
+
+``` bash
+./zabbix-agent2-<plugin> --standalone --verbose
+```
+
+------------------------------------------------------------------------
+
+# 🔐 Security Recommendations
+
+-   Build with `CGO_ENABLED=0` for static binaries\
+-   Restrict write permissions to plugin directories\
+-   Only administrators should modify plugin binaries or configuration
+    files\
+-   Store CI/CD secrets securely
+
+------------------------------------------------------------------------
+
+# 📁 Example Repository Structure
+
+    plugins/
+     ├── application_inventory/
+     │   ├── main.go
+     │   ├── build_windows.ps1
+     │   ├── build_windows.sh
+     │   └── application_inventory.conf
+     ├── needs_reboot_check/
+     │   ├── main.go
+     │   └── needs_reboot_check.conf
+     └── binary/
+         └── zabbix-agent2-application_inventory.exe
