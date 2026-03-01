@@ -28,7 +28,7 @@ zabbix_export:
           on dependent discovery rules will show an error. Discovery works normally
           when the agent sends the master item value on schedule.
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-2
       groups:
         - name: Templates

@@ -10,10 +10,9 @@ zabbix_export:
       template: 'Windows Service Listning Port Zabbix Agent Active'
       name: 'Windows Service Listning Port Zabbix Agent Active'
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-0
       groups:
-        - name: 'Iver Templates'
         - name: Templates
       items:
         - uuid: 1af87cf81dbe40c5b361597d9171bfee

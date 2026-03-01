@@ -8,7 +8,7 @@ zabbix_export:
       template: 'Windows Reboot Check Zabbix Agent Active'
       name: 'Windows Reboot Check Zabbix Agent Active'
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-0
       groups:
         - name: Templates

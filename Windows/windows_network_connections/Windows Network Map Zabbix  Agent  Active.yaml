@@ -2,7 +2,7 @@ zabbix_export:
   version: '7.0'
   template_groups:
     - uuid: 9f32c6e8e1fa4fcbbbd3a506935f3e09
-      name: 'Iver Templates'
+      name: 'Templates'
     - uuid: 7df96b18c230490a9a0a9e2307226338
       name: Templates
   templates:
@@ -10,10 +10,9 @@ zabbix_export:
       template: 'Windows Network Map Zabbix  Agent  Active'
       name: 'Windows Network Map Zabbix  Agent  Active'
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-0
       groups:
-        - name: 'Iver Templates'
         - name: Templates
       items:
         - uuid: 4d6da554836041129420cd4c7e18b5ac
