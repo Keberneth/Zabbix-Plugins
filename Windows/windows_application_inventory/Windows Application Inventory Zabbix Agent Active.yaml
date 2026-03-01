@@ -1,0 +1,26 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 42b2dfae464940449200dd23d9b6dedd
+      template: 'Windows Application Inventory Zabbix Agent Active'
+      name: 'Windows Application Inventory Zabbix Agent Active'
+      vendor:
+        name: Iver
+        version: 7.0-0-0
+      groups:
+        - name: Templates
+      items:
+        - uuid: 3deeb297572f4d5f9e864701119c93c1
+          name: 'Windows Application Inventory JSON'
+          type: ZABBIX_ACTIVE
+          key: application.inventory
+          delay: 6h
+          value_type: TEXT
+          trends: '0'
+          timeout: 15s
+          tags:
+            - tag: application
+              value: inventory
