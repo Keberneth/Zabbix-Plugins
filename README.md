@@ -1,13 +1,12 @@
 # Zabbix Agent2 Go Plugins
 
-Production-ready Zabbix Agent2 plugins written in Go.
+Zabbix Agent2 plugins written in Go.
 
 Each plugin is compiled into a standalone binary:
 
 -   `.exe` for Windows\
 -   Native binary for Linux
 
-No PowerShell or shell scripts are required at runtime.
 
 ------------------------------------------------------------------------
 
