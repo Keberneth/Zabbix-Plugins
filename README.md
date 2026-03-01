@@ -89,16 +89,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File build_windows.ps1
 1.  Copy the compiled `.exe` file to:
 
 ```{=html}
-<!-- -->
-```
     C:\Program Files\Zabbix Agent 2\
+```
 
 2.  Copy the corresponding `.conf` file to:
 
 ```{=html}
-<!-- -->
-```
     C:\Program Files\Zabbix Agent 2\conf.d\
+```
 
 3.  Restart Zabbix Agent 2:
 
@@ -113,16 +111,14 @@ Restart-Service "Zabbix Agent 2"
 1.  Copy the compiled plugin binary to:
 
 ```{=html}
-<!-- -->
-```
     /usr/sbin/zabbix-agent2-plugin/
+```
 
 2.  Copy the corresponding `.conf` file to:
 
 ```{=html}
-<!-- -->
-```
     /etc/zabbix/conf.d/plugins/
+```
 
 3.  Set secure permissions:
 
