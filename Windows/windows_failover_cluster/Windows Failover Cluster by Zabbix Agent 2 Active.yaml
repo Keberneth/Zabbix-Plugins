@@ -1,0 +1,1095 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a23c9f3c42384b3ea9676e23fb9dcdf0
+      name: Templates
+  templates:
+    - uuid: 2819456ad1394a78ab9a0cb8102b9481
+      template: 'Windows Failover Cluster by Zabbix Agent 2 Active'
+      name: 'Windows Failover Cluster by Zabbix Agent 2 Active'
+      vendor:
+        name: Iver
+        version: 7.0-1
+      groups:
+        - name: Templates
+      items:
+        - uuid: beac6e203fb247b180a196b2ee3d3735
+          name: 'WFC Resource failed (ID1069)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1069$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: e1ce3ddd4b4246529ad74d27a9b69cf1
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1069$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Resource failed (ID1069)'
+              priority: HIGH
+        - uuid: 7453aed82bf24115823247e65a74eaf1
+          name: 'WFC Resource failover threshold reached (ID1077)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1077$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 25e0f7e43fb14865944972fab41c45c6
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1077$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Resource failover threshold reached (ID1077)'
+              priority: DISASTER
+        - uuid: d68c7c2f2101404f84f7940323838165
+          name: 'WFC Node failed to communicate (ID1129)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1129$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 1cebe8fb011841e2822f30e61c64ad5c
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1129$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Node failed to communicate (ID1129)'
+              priority: HIGH
+        - uuid: 2da361b306cf4e519fc910481ca0b348
+          name: 'WFC Cluster network partition detected (ID1130)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1130$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 5c81c4e9d65c4d75a0f200802f5fdaf3
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1130$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Cluster network partition detected (ID1130)'
+              priority: HIGH
+        - uuid: 4b1e5550b54848c1b10b7dc82e6dd08b
+          name: 'WFC Network connection restored (ID1131)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1131$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 945e95d8a04646efbf6c809bd4e616c7
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1131$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Network connection restored (ID1131)'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 1c208fdbd30b4f2abd647d905c98f33b
+          name: 'WFC Node removed from cluster (ID1135)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1135$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 3766245b1d8b4fcda45309a6ede7ea2b
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1135$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Node removed from cluster (ID1135)'
+              priority: HIGH
+        - uuid: 81a12ad8afa843faa204c8afd25c472a
+          name: 'WFC Node added to cluster (ID1137)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1137$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 76130c7b5d1547eb853a53887b1cb10d
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1137$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Node added to cluster (ID1137)'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: c0addbd1e2df4829841795e8226f43d8
+          name: 'WFC Cluster service lost quorum and stopped (ID1176)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1176$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 01ae95c1634046648d3747bebebefc6f
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1176$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Cluster service lost quorum and stopped (ID1176)'
+              priority: DISASTER
+        - uuid: bc1cd17d4b8e4126adc1527d32bfdfe1
+          name: 'WFC Cluster formed or node gained quorum (ID1177)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1177$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 75fa612100b444f0aaa6231a8dc52518
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1177$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Cluster formed or node gained quorum (ID1177)'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 1f726e2d79ff4b0697353f18732b2a1c
+          name: 'WFC Cluster group failed (ID1205)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1205$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: cd38491f8ac24742939c477a8d9ebd56
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1205$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Cluster group failed (ID1205)'
+              priority: HIGH
+        - uuid: 8312c14a35ac464ca2ca2c637ed9c5e9
+          name: 'WFC Cluster group moved (ID1207)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1207$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: dc32936edbf446058466ab292e9b7745
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1207$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Cluster group moved (ID1207)'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: 57aaf1ab88b54e079673a0c6a61d46ff
+          name: 'WFC Quorum resource failed (ID1561)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1561$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: e29958b40f7244c18496ce2803714136
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1561$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Quorum resource failed (ID1561)'
+              priority: HIGH
+        - uuid: 9dc5fb21580948089014ef0e9556a752
+          name: 'WFC File share witness failed (ID1569)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1569$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 9bd0a158d5f34213823a7450016d08d6
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1569$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC File share witness failed (ID1569)'
+              priority: HIGH
+        - uuid: 303a1aaf852c4c7bbe57e566df4e77f8
+          name: 'WFC Disk witness lost (ID1573)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^1573$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: fb46833c216541abb7cf3ee270488462
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^1573$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC Disk witness lost (ID1573)'
+              priority: HIGH
+        - uuid: 255aa3bbf120492cae134ea6b01c0c70
+          name: 'WFC CSV no longer available (ID5120)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^5120$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 360918f7b4e445c6bb14ce75dc5d5d5c
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^5120$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC CSV no longer available (ID5120)'
+              priority: DISASTER
+        - uuid: 63b0f0c51e914c988229c40f396b9df8
+          name: 'WFC CSV entered redirected mode (ID5142)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[System,,,,^5142$]'
+          delay: '{$WFC.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 96798e16989b4509a792aa903debfce6
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/eventlog[System,,,,^5142$],{$WFC.EVENTLOG.WINDOW})=0'
+              name: 'WFC CSV entered redirected mode (ID5142)'
+              priority: AVERAGE
+        - uuid: 1e2bb96367bc4ee5afd1034c37c215a9
+          name: 'WFC Core cluster group owner node'
+          type: DEPENDENT
+          key: wfc.cluster.group_owner
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.ClusterGroupOwnerNode) ? j.ClusterGroupOwnerNode : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: e5fb323ccc6247ab94e91c862875dbea
+          name: 'WFC Cluster name'
+          type: DEPENDENT
+          key: wfc.cluster.name
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.ClusterName) ? j.ClusterName : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 0160467091044de5bfbc511ceda96676
+          name: 'WFC Cluster data JSON'
+          type: ZABBIX_ACTIVE
+          key: wfc.cluster.status
+          delay: '{$WFC.COLLECT.INTERVAL}'
+          value_type: TEXT
+          trends: '0'
+          description: |
+            Master item returned by the WindowsFailoverCluster Go plugin.
+            The rest of the template uses dependent items and dependent discovery.
+          timeout: 25s
+          triggers:
+            - uuid: beb9a9f956464ecd9d481ebed70d538e
+              expression: 'nodata(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.status,{$WFC.NODATA.WINDOW})=1'
+              name: 'WFC cluster JSON collection stopped'
+              priority: AVERAGE
+        - uuid: cce2141647c74b0baef73e391963fdd0
+          name: 'WFC Collection age'
+          type: DEPENDENT
+          key: wfc.collection.age
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionAgeSeconds !== undefined && j.CollectionAgeSeconds !== null) ? j.CollectionAgeSeconds : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 4861543c0f144b54ad9904cbd141e0ca
+          name: 'WFC Collection error'
+          type: DEPENDENT
+          key: wfc.collection.error
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionError !== undefined && j.CollectionError !== null) ? j.CollectionError : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 68ca2d13700647028e6509a9fdcc9cfd
+          name: 'WFC Collection mode'
+          type: DEPENDENT
+          key: wfc.collection.mode
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionMode) ? j.CollectionMode : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: ea71f22f8a0c4ee7af441d10263e0f67
+          name: 'WFC Local node'
+          type: DEPENDENT
+          key: wfc.local.node
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.LocalNode) ? j.LocalNode : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 8d0baaaba25d441ab4db6c5955d1ef8f
+          name: 'WFC Dynamic quorum enabled'
+          type: DEPENDENT
+          key: wfc.quorum.dynamic_quorum
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.DynamicQuorum !== undefined && j.Quorum.DynamicQuorum !== null) ? j.Quorum.DynamicQuorum : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 537ae71784fb48788a065629f0e4161b
+          name: 'WFC Forced quorum'
+          type: DEPENDENT
+          key: wfc.quorum.force_quorum
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.ForceQuorum !== undefined && j.Quorum.ForceQuorum !== null) ? j.Quorum.ForceQuorum : 0;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: ac0c335014c6460e8bf742288cbd1bfc
+          name: 'WFC Quorum mode'
+          type: DEPENDENT
+          key: wfc.quorum.mode
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.Mode !== undefined && j.Quorum.Mode !== null) ? j.Quorum.Mode : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: f62dec9fed3040d7bff0bb3b35553e56
+          name: 'WFC Quorum resource'
+          type: DEPENDENT
+          key: wfc.quorum.resource
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.QuorumResource !== undefined && j.Quorum.QuorumResource !== null) ? j.Quorum.QuorumResource : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 20e7834a4cd34116a6d0fb4413b66d38
+          name: 'WFC Offline groups count'
+          type: DEPENDENT
+          key: wfc.summary.groups_offline
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.GroupsOffline !== undefined && j.Summary.GroupsOffline !== null) ? j.Summary.GroupsOffline : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: e06553bab5d1486fa289bd530ea01e61
+          name: 'WFC Down nodes count'
+          type: DEPENDENT
+          key: wfc.summary.nodes_down
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.NodesDown !== undefined && j.Summary.NodesDown !== null) ? j.Summary.NodesDown : null;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: caff0fc5e43c499e8c5a37ff48f86972
+          name: 'WFC Witness account name'
+          type: DEPENDENT
+          key: wfc.witness.account_name
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessAccountName !== undefined && j.Quorum.WitnessAccountName !== null) ? j.Quorum.WitnessAccountName : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: a0c7b017dacb4517a793a1e2b42e35d5
+          name: 'WFC Witness endpoint'
+          type: DEPENDENT
+          key: wfc.witness.endpoint
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessEndpoint !== undefined && j.Quorum.WitnessEndpoint !== null) ? j.Quorum.WitnessEndpoint : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 76d84b436f6d47ca80c11c5f27356230
+          name: 'WFC Witness health'
+          type: DEPENDENT
+          key: wfc.witness.health
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessHealth !== undefined && j.Quorum.WitnessHealth !== null) ? j.Quorum.WitnessHealth : 1;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 9681d769c41c493f966ea72dd68d44b6
+          name: 'WFC Witness in use'
+          type: DEPENDENT
+          key: wfc.witness.inuse
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessInUse !== undefined && j.Quorum.WitnessInUse !== null) ? j.Quorum.WitnessInUse : 0;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: d486ff32b54745b890869b55575d242d
+          name: 'WFC Witness path'
+          type: DEPENDENT
+          key: wfc.witness.path
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessPath !== undefined && j.Quorum.WitnessPath !== null) ? j.Quorum.WitnessPath : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: abf44831932a411fac4ec618e39dbeb8
+          name: 'WFC Witness present'
+          type: DEPENDENT
+          key: wfc.witness.present
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessPresent !== undefined && j.Quorum.WitnessPresent !== null) ? j.Quorum.WitnessPresent : 0;
+          master_item:
+            key: wfc.cluster.status
+        - uuid: 3e39fdcaca2e4ac096eb647138f4d46f
+          name: 'WFC Witness resource'
+          type: DEPENDENT
+          key: wfc.witness.resource
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessResource !== undefined && j.Quorum.WitnessResource !== null) ? j.Quorum.WitnessResource : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: bef79e31fe424586998d65a9b21a7c35
+          name: 'WFC Witness state'
+          type: DEPENDENT
+          key: wfc.witness.state
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessState !== undefined && j.Quorum.WitnessState !== null) ? j.Quorum.WitnessState : "";
+          master_item:
+            key: wfc.cluster.status
+        - uuid: c0e52b82c6ff4f759629d83f139e5731
+          name: 'WFC Witness type'
+          type: DEPENDENT
+          key: wfc.witness.type
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Quorum && j.Quorum.WitnessType !== undefined && j.Quorum.WitnessType !== null) ? j.Quorum.WitnessType : "";
+          master_item:
+            key: wfc.cluster.status
+      discovery_rules:
+        - uuid: fce96954ec814d08ab43b10e3881b057
+          name: 'WFC cluster IP discovery'
+          type: DEPENDENT
+          key: wfc.clusterip.discovery
+          delay: '0'
+          item_prototypes:
+            - uuid: 1e057b0f7e8d4caeb4d93109fc30de6f
+              name: 'WFC Cluster IP "{#IPNAME}" address'
+              type: DEPENDENT
+              key: 'wfc.clusterip.address["{#IPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#IPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.ClusterIPs)) {
+                        for (var i = 0; i < j.ClusterIPs.length; i++) {
+                          var ip = j.ClusterIPs[i];
+                          if (ip && ip.Name === name) {
+                            return ip.Address || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: ee3cdc403b794a3fa86c30bdc8989621
+              name: 'WFC Cluster IP "{#IPNAME}" owner group'
+              type: DEPENDENT
+              key: 'wfc.clusterip.group["{#IPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#IPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.ClusterIPs)) {
+                        for (var i = 0; i < j.ClusterIPs.length; i++) {
+                          var ip = j.ClusterIPs[i];
+                          if (ip && ip.Name === name) {
+                            return ip.OwnerGroup || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: e9df50693d6f4545b34422bb99f3afac
+              name: 'WFC Cluster IP "{#IPNAME}" online state'
+              type: DEPENDENT
+              key: 'wfc.clusterip.isonline["{#IPNAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#IPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.ClusterIPs)) {
+                        for (var i = 0; i < j.ClusterIPs.length; i++) {
+                          var ip = j.ClusterIPs[i];
+                          if (ip && ip.Name === name) {
+                            if (ip.IsOnline !== undefined && ip.IsOnline !== null) {
+                              return ip.IsOnline;
+                            }
+                            return (ip.State === "Online") ? 1 : 0;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: f420c7f2fe684804932eeba3b571ad28
+              name: 'WFC Cluster IP "{#IPNAME}" owner node'
+              type: DEPENDENT
+              key: 'wfc.clusterip.owner["{#IPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#IPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.ClusterIPs)) {
+                        for (var i = 0; i < j.ClusterIPs.length; i++) {
+                          var ip = j.ClusterIPs[i];
+                          if (ip && ip.Name === name) {
+                            return ip.OwnerNode || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 7a0ae914e2c44d92a5ae8c7bbf5bb809
+              name: 'WFC Cluster IP "{#IPNAME}" state'
+              type: DEPENDENT
+              key: 'wfc.clusterip.state["{#IPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#IPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.ClusterIPs)) {
+                        for (var i = 0; i < j.ClusterIPs.length; i++) {
+                          var ip = j.ClusterIPs[i];
+                          if (ip && ip.Name === name) {
+                            return ip.State || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+          trigger_prototypes:
+            - uuid: cc456b7f1e34408e848ce8a896fa15d7
+              expression: '(max(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.clusterip.isonline["{#IPNAME}"],{$WFC.IP.PROBLEM.WINDOW})=0) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+              name: 'WFC cluster IP "{#IPNAME}" is not Online'
+              priority: HIGH
+          master_item:
+            key: wfc.cluster.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.ClusterIPs)) {
+                    for (var i = 0; i < j.ClusterIPs.length; i++) {
+                      var ip = j.ClusterIPs[i];
+                      if (!ip || !ip.Name) continue;
+                      data.push({
+                        "{#IPNAME}": ip.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 5241de5ce0114940bc16bcf33a60ac7d
+          name: 'WFC group discovery'
+          type: DEPENDENT
+          key: wfc.groups.discovery
+          delay: '0'
+          item_prototypes:
+            - uuid: 8816bd7741304270b237b5acdb481d0f
+              name: 'WFC Group "{#GROUPNAME}" online state'
+              type: DEPENDENT
+              key: 'wfc.group.isonline["{#GROUPNAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#GROUPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Groups)) {
+                        for (var i = 0; i < j.Groups.length; i++) {
+                          var g = j.Groups[i];
+                          if (g && g.Name === name) {
+                            if (g.IsOnline !== undefined && g.IsOnline !== null) {
+                              return g.IsOnline;
+                            }
+                            return (g.State === "Online") ? 1 : 0;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 8c30868cd4b74ec585aa85bfda6471ea
+              name: 'WFC Group "{#GROUPNAME}" owner node'
+              type: DEPENDENT
+              key: 'wfc.group.owner["{#GROUPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#GROUPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Groups)) {
+                        for (var i = 0; i < j.Groups.length; i++) {
+                          var g = j.Groups[i];
+                          if (g && g.Name === name) {
+                            return g.OwnerNode || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 99db4fa01c644ae88d3f405293865d23
+              name: 'WFC Group "{#GROUPNAME}" resource count'
+              type: DEPENDENT
+              key: 'wfc.group.resource_count["{#GROUPNAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#GROUPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Groups)) {
+                        for (var i = 0; i < j.Groups.length; i++) {
+                          var g = j.Groups[i];
+                          if (g && g.Name === name) {
+                            return (g.ResourceCount !== undefined && g.ResourceCount !== null) ? g.ResourceCount : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: dac8f82d22584844aa879be70fd354e2
+              name: 'WFC Group "{#GROUPNAME}" state'
+              type: DEPENDENT
+              key: 'wfc.group.state["{#GROUPNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#GROUPNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Groups)) {
+                        for (var i = 0; i < j.Groups.length; i++) {
+                          var g = j.Groups[i];
+                          if (g && g.Name === name) {
+                            return g.State || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+          trigger_prototypes:
+            - uuid: 5c94d91f3ee4471bbecdca4b9160700f
+              expression: '(max(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.group.isonline["{#GROUPNAME}"],{$WFC.GROUP.PROBLEM.WINDOW})=0) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+              name: 'WFC group "{#GROUPNAME}" is not Online'
+              priority: HIGH
+            - uuid: 6e6986650b13411d85898cb7bf18fa81
+              expression: '(change(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.group.owner["{#GROUPNAME}"])=1 and {$WFC.GROUP.FAILOVER.INFO}=1) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+              name: 'WFC group "{#GROUPNAME}" moved to {ITEM.LASTVALUE}'
+              priority: INFO
+              manual_close: 'YES'
+          master_item:
+            key: wfc.cluster.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  var rx = null;
+                  
+                  try {
+                    rx = new RegExp("{$WFC.GROUP.EXCLUDE.MATCHES}");
+                  } catch (e) {
+                    rx = null;
+                  }
+                  
+                  if (j && Array.isArray(j.Groups)) {
+                    for (var i = 0; i < j.Groups.length; i++) {
+                      var g = j.Groups[i];
+                      if (!g || !g.Name) continue;
+                      if (rx && rx.test(g.Name)) continue;
+                      data.push({
+                        "{#GROUPNAME}": g.Name
+                      });
+                    }
+                  }
+                  
+                  return JSON.stringify({data: data});
+        - uuid: 7fddd4406e714cea9a7ecda0740d1aaa
+          name: 'WFC network interface discovery'
+          type: DEPENDENT
+          key: wfc.netif.discovery
+          delay: '0'
+          item_prototypes:
+            - uuid: 6d88eec06f8d4f83bd9d5b6bde78a3bb
+              name: 'WFC Interface "{#IFNAME}" on {#NODENAME} address'
+              type: DEPENDENT
+              key: 'wfc.netif.address["{#NODENAME}","{#IFNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var node = "{#NODENAME}";
+                      var name = "{#IFNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.NetworkInterfaces)) {
+                        for (var i = 0; i < j.NetworkInterfaces.length; i++) {
+                          var n = j.NetworkInterfaces[i];
+                          if (n && n.Node === node && n.Name === name) {
+                            return n.Address || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 8af0e48aa3af4ed1a4efd32cc20065f3
+              name: 'WFC Interface "{#IFNAME}" on {#NODENAME} cluster network'
+              type: DEPENDENT
+              key: 'wfc.netif.network["{#NODENAME}","{#IFNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var node = "{#NODENAME}";
+                      var name = "{#IFNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.NetworkInterfaces)) {
+                        for (var i = 0; i < j.NetworkInterfaces.length; i++) {
+                          var n = j.NetworkInterfaces[i];
+                          if (n && n.Node === node && n.Name === name) {
+                            return n.Network || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 1d0becb18a534c889eb3967dbce76f1c
+              name: 'WFC Interface "{#IFNAME}" on {#NODENAME} state'
+              type: DEPENDENT
+              key: 'wfc.netif.state["{#NODENAME}","{#IFNAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var node = "{#NODENAME}";
+                      var name = "{#IFNAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.NetworkInterfaces)) {
+                        for (var i = 0; i < j.NetworkInterfaces.length; i++) {
+                          var n = j.NetworkInterfaces[i];
+                          if (n && n.Node === node && n.Name === name) {
+                            return n.State || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+          master_item:
+            key: wfc.cluster.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.NetworkInterfaces)) {
+                    for (var i = 0; i < j.NetworkInterfaces.length; i++) {
+                      var n = j.NetworkInterfaces[i];
+                      if (!n || !n.Name || !n.Node) continue;
+                      data.push({
+                        "{#NODENAME}": n.Node,
+                        "{#IFNAME}": n.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 6ddb4aa45d9d4a87bf6b0e6ea1f6f516
+          name: 'WFC node discovery'
+          type: DEPENDENT
+          key: wfc.nodes.discovery
+          delay: '0'
+          item_prototypes:
+            - uuid: cc1b4d6880dd4578b237da080f3528eb
+              name: 'WFC Node "{#NODENAME}" dynamic weight'
+              type: DEPENDENT
+              key: 'wfc.node.dynamic_weight["{#NODENAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#NODENAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Nodes)) {
+                        for (var i = 0; i < j.Nodes.length; i++) {
+                          var n = j.Nodes[i];
+                          if (n && n.Name === name) {
+                            return (n.DynamicWeight !== undefined && n.DynamicWeight !== null) ? n.DynamicWeight : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 1dd86c8195e8486e9334203b348ed577
+              name: 'WFC Node "{#NODENAME}" up state'
+              type: DEPENDENT
+              key: 'wfc.node.isup["{#NODENAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#NODENAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Nodes)) {
+                        for (var i = 0; i < j.Nodes.length; i++) {
+                          var n = j.Nodes[i];
+                          if (n && n.Name === name) {
+                            if (n.IsUp !== undefined && n.IsUp !== null) {
+                              return n.IsUp;
+                            }
+                            return (n.State === "Up" || n.State === "Online" || n.StateRaw === 0) ? 1 : 0;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: c594d0b112894e6099c76cf7d1d4c831
+              name: 'WFC Node "{#NODENAME}" state'
+              type: DEPENDENT
+              key: 'wfc.node.state["{#NODENAME}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#NODENAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Nodes)) {
+                        for (var i = 0; i < j.Nodes.length; i++) {
+                          var n = j.Nodes[i];
+                          if (n && n.Name === name) {
+                            return n.State || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+            - uuid: 29a6589b890a4ce28ac31677b90c0ed4
+              name: 'WFC Node "{#NODENAME}" vote weight'
+              type: DEPENDENT
+              key: 'wfc.node.weight["{#NODENAME}"]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#NODENAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Nodes)) {
+                        for (var i = 0; i < j.Nodes.length; i++) {
+                          var n = j.Nodes[i];
+                          if (n && n.Name === name) {
+                            return (n.NodeWeight !== undefined && n.NodeWeight !== null) ? n.NodeWeight : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: wfc.cluster.status
+          trigger_prototypes:
+            - uuid: 23956f4d8e734f3881e7d1b65b0762ee
+              expression: '(max(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.node.isup["{#NODENAME}"],{$WFC.NODE.PROBLEM.WINDOW})=0) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+              name: 'WFC node "{#NODENAME}" is down'
+              priority: HIGH
+          master_item:
+            key: wfc.cluster.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Nodes)) {
+                    for (var i = 0; i < j.Nodes.length; i++) {
+                      var n = j.Nodes[i];
+                      if (!n || !n.Name) continue;
+                      data.push({
+                        "{#NODENAME}": n.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+      macros:
+        - macro: '{$WFC.CACHED.WARN.SEC}'
+          value: '300'
+          description: 'Raise a local warning if the plugin is serving cached cluster data older than this many seconds.'
+        - macro: '{$WFC.COLLECT.INTERVAL}'
+          value: 5m
+          description: 'How often the Go plugin collects the cluster snapshot.'
+        - macro: '{$WFC.DEDUP.CLUSTER_ALERTS}'
+          value: '1'
+          description: 'Set to 1 to emit cluster-level triggers only from the current core cluster owner node. Set to 0 to alert from both nodes.'
+        - macro: '{$WFC.EVENTLOG.INTERVAL}'
+          value: 5m
+          description: 'Polling interval for Windows eventlog[] items.'
+        - macro: '{$WFC.EVENTLOG.WINDOW}'
+          value: 10m
+          description: 'How long eventlog-based triggers should stay open after the matching cluster event ID was seen.'
+        - macro: '{$WFC.GROUP.EXCLUDE.MATCHES}'
+          value: '^(Available Storage)$'
+          description: 'Regex for clustered roles that should not be discovered by default.'
+        - macro: '{$WFC.GROUP.FAILOVER.INFO}'
+          value: '1'
+          description: 'Set to 1 to generate informational events when a clustered role owner changes.'
+        - macro: '{$WFC.GROUP.PROBLEM.WINDOW}'
+          value: 10m
+          description: 'How long a clustered role must stay non-Online before the per-role trigger is raised.'
+        - macro: '{$WFC.IP.PROBLEM.WINDOW}'
+          value: 10m
+          description: 'How long a clustered IP resource must stay non-Online before the trigger is raised.'
+        - macro: '{$WFC.NODATA.WINDOW}'
+          value: 15m
+          description: 'Raise a local collection problem if no cluster JSON is received inside this window.'
+        - macro: '{$WFC.NODE.PROBLEM.WINDOW}'
+          value: 10m
+          description: 'How long a node must stay down before the per-node trigger is raised.'
+        - macro: '{$WFC.WITNESS.PROBLEM.WINDOW}'
+          value: 10m
+          description: 'How long the witness can stay unhealthy before the trigger is raised.'
+        - macro: '{$WFC.WITNESS.REQUIRED}'
+          value: '1'
+          description: 'Set to 1 for two-node clusters that require a witness. Set to 0 if no witness alert should be raised.'
+  triggers:
+    - uuid: 7e0e8da9701a47f7bf1cad484537d0eb
+      expression: '(last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.quorum.force_quorum)=1) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+      name: 'WFC cluster is in forced quorum'
+      priority: HIGH
+    - uuid: bfdfcb6e536a4c699c64ce6da624f4b1
+      expression: 'last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.collection.mode)<>"live" and last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.collection.age)>={$WFC.CACHED.WARN.SEC}'
+      name: 'WFC plugin is serving cached cluster data'
+      priority: WARNING
+    - uuid: bddf0dcd22004aba90c2da32342675aa
+      expression: '(min(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.witness.health,{$WFC.WITNESS.PROBLEM.WINDOW})=0 and {$WFC.WITNESS.REQUIRED}=1) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+      name: 'WFC witness is not healthy'
+      priority: HIGH
+    - uuid: f768efc39bc54234aae4b8b5dfc80a53
+      expression: '(last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.witness.present)=0 and {$WFC.WITNESS.REQUIRED}=1) and ({$WFC.DEDUP.CLUSTER_ALERTS}=0 or last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.local.node)=last(/Windows Failover Cluster by Zabbix Agent 2 Active/wfc.cluster.group_owner))'
+      name: 'WFC witness is required but not detected'
+      priority: HIGH
