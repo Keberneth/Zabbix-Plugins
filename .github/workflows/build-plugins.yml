@@ -5,7 +5,11 @@ on:
     branches: [main]
     paths:
       - "Windows/**/*.go"
+      - "Windows/**/go.mod"
+      - "Windows/**/go.sum"
       - "Linux/**/*.go"
+      - "Linux/**/go.mod"
+      - "Linux/**/go.sum"
   workflow_dispatch:
 
 permissions:
@@ -37,26 +41,26 @@ jobs:
           PLUGINS='[]'
 
           add_plugin() {
-            local dir="$1" module="$2" sdk="$3" goos="$4" binary="$5"
+            local dir="$1" goos="$2" binary="$3"
             if [ "$MATCH_ALL" = true ] || echo "$CHANGED" | grep -q "^${dir}/"; then
               PLUGINS=$(echo "$PLUGINS" | jq -c \
-                --arg d "$dir" --arg m "$module" --arg s "$sdk" --arg g "$goos" --arg b "$binary" \
-                '. += [{"dir":$d,"module":$m,"sdk":$s,"goos":$g,"binary":$b}]')
+                --arg d "$dir" --arg g "$goos" --arg b "$binary" \
+                '. += [{"dir":$d,"goos":$g,"binary":$b}]')
             fi
           }
 
           # Windows plugins
-          add_plugin "Windows/windows_ad_user_monitoring"       "adusermonitoring"                "d9643740a558" "windows" "zabbix-agent2-ad-user-monitoring.exe"
-          add_plugin "Windows/windows_application_inventory"     "windows_application_inventory"   "3b95c058c0e"  "windows" "zabbix-agent2-application-inventory.exe"
-          add_plugin "Windows/windows_failover_cluster"          "windowsfailovercluster"          "d9643740a558" "windows" "zabbix-agent2-windows-failover-cluster.exe"
-          add_plugin "Windows/windows_needs_reboot_check"        "windows_needs_reboot_check"      "3b95c058c0e"  "windows" "zabbix-agent2-needs-reboot-check.exe"
-          add_plugin "Windows/windows_network_connections"       "windows_network_connections"      "3b95c058c0e"  "windows" "zabbix-agent2-windows-network-connections.exe"
-          add_plugin "Windows/windows_service_listening_port"    "windows_service_listening_port"   "3b95c058c0e"  "windows" "zabbix-agent2-windows-service-listening-port.exe"
+          add_plugin "Windows/windows_ad_user_monitoring"     "windows" "zabbix-agent2-ad-user-monitoring.exe"
+          add_plugin "Windows/windows_application_inventory"  "windows" "zabbix-agent2-application-inventory.exe"
+          add_plugin "Windows/windows_failover_cluster"       "windows" "zabbix-agent2-windows-failover-cluster.exe"
+          add_plugin "Windows/windows_needs_reboot_check"     "windows" "zabbix-agent2-needs-reboot-check.exe"
+          add_plugin "Windows/windows_network_connections"    "windows" "zabbix-agent2-windows-network-connections.exe"
+          add_plugin "Windows/windows_service_listening_port" "windows" "zabbix-agent2-windows-service-listening-port.exe"
 
           # Linux plugins
-          add_plugin "Linux/linux_needs_reboot_check"            "linux_needs_reboot_check"        "36ea4c1c90d"  "linux"   "zabbix-agent2-needs-reboot-check"
-          add_plugin "Linux/linux_network_connections"            "linux_network_connections"        "36ea4c1c90d"  "linux"   "zabbix-agent2-linux-network-connections"
-          add_plugin "Linux/linux_service_listening_port"         "linux_service_listening_port"     "36ea4c1c90d"  "linux"   "zabbix-agent2-linux-service-listening-port"
+          add_plugin "Linux/linux_needs_reboot_check"         "linux"   "zabbix-agent2-needs-reboot-check"
+          add_plugin "Linux/linux_network_connections"        "linux"   "zabbix-agent2-linux-network-connections"
+          add_plugin "Linux/linux_service_listening_port"     "linux"   "zabbix-agent2-linux-service-listening-port"
 
           if [ "$PLUGINS" = "[]" ]; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
@@ -78,8 +82,24 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: stable
-          cache: false
+          go-version-file: ${{ matrix.dir }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ matrix.dir }}/go.sum
+
+      - name: Verify dependencies
+        working-directory: ${{ matrix.dir }}
+        run: |
+          go mod download
+          go mod verify
+
+      - name: Vulnerability scan (govulncheck)
+        working-directory: ${{ matrix.dir }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
       - name: Build ${{ matrix.binary }}
         working-directory: ${{ matrix.dir }}
@@ -88,9 +108,6 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: "0"
         run: |
-          go mod init "${{ matrix.module }}"
-          go get "golang.zabbix.com/sdk@${{ matrix.sdk }}"
-          go mod tidy
           go build -trimpath -ldflags "-s -w" -o "${{ matrix.binary }}"
           echo "Built ${{ matrix.binary }} ($(wc -c < "${{ matrix.binary }}") bytes)"
 
