@@ -1,0 +1,129 @@
+name: Build Plugins
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Windows/**/*.go"
+      - "Linux/**/*.go"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.filter.outputs.matrix }}
+      has_changes: ${{ steps.filter.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed plugins
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MATCH_ALL=true
+          elif git rev-parse HEAD~1 >/dev/null 2>&1; then
+            MATCH_ALL=false
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          else
+            MATCH_ALL=true
+          fi
+
+          PLUGINS='[]'
+
+          add_plugin() {
+            local dir="$1" module="$2" sdk="$3" goos="$4" binary="$5"
+            if [ "$MATCH_ALL" = true ] || echo "$CHANGED" | grep -q "^${dir}/"; then
+              PLUGINS=$(echo "$PLUGINS" | jq -c \
+                --arg d "$dir" --arg m "$module" --arg s "$sdk" --arg g "$goos" --arg b "$binary" \
+                '. += [{"dir":$d,"module":$m,"sdk":$s,"goos":$g,"binary":$b}]')
+            fi
+          }
+
+          # Windows plugins
+          add_plugin "Windows/windows_ad_user_monitoring"       "adusermonitoring"                "d9643740a558" "windows" "zabbix-agent2-ad-user-monitoring.exe"
+          add_plugin "Windows/windows_application_inventory"     "windows_application_inventory"   "3b95c058c0e"  "windows" "zabbix-agent2-application-inventory.exe"
+          add_plugin "Windows/windows_failover_cluster"          "windowsfailovercluster"          "d9643740a558" "windows" "zabbix-agent2-windows-failover-cluster.exe"
+          add_plugin "Windows/windows_needs_reboot_check"        "windows_needs_reboot_check"      "3b95c058c0e"  "windows" "zabbix-agent2-needs-reboot-check.exe"
+          add_plugin "Windows/windows_network_connections"       "windows_network_connections"      "3b95c058c0e"  "windows" "zabbix-agent2-windows-network-connections.exe"
+          add_plugin "Windows/windows_service_listening_port"    "windows_service_listening_port"   "3b95c058c0e"  "windows" "zabbix-agent2-windows-service-listening-port.exe"
+
+          # Linux plugins
+          add_plugin "Linux/linux_needs_reboot_check"            "linux_needs_reboot_check"        "36ea4c1c90d"  "linux"   "zabbix-agent2-needs-reboot-check"
+          add_plugin "Linux/linux_network_connections"            "linux_network_connections"        "36ea4c1c90d"  "linux"   "zabbix-agent2-linux-network-connections"
+          add_plugin "Linux/linux_service_listening_port"         "linux_service_listening_port"     "36ea4c1c90d"  "linux"   "zabbix-agent2-linux-service-listening-port"
+
+          if [ "$PLUGINS" = "[]" ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "matrix=$(echo "$PLUGINS" | jq -c '{"include":.}')" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Build ${{ matrix.binary }}
+        working-directory: ${{ matrix.dir }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: |
+          go mod init "${{ matrix.module }}"
+          go get "golang.zabbix.com/sdk@${{ matrix.sdk }}"
+          go mod tidy
+          go build -trimpath -ldflags "-s -w" -o "${{ matrix.binary }}"
+          echo "Built ${{ matrix.binary }} ($(wc -c < "${{ matrix.binary }}") bytes)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary }}
+          path: ${{ matrix.dir }}/${{ matrix.binary }}
+          retention-days: 90
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect binaries
+        run: |
+          mkdir -p release
+          find artifacts -type f | while read -r f; do
+            cp "$f" release/
+          done
+          echo "Release contents:"
+          ls -lh release/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build #${{ github.run_number }}
+          body: |
+            Automated build from [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+
+            Triggered by: ${{ github.event_name }}
+          files: release/*
+          make_latest: true
