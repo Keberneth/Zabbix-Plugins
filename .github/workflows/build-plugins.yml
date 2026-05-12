@@ -59,6 +59,7 @@ jobs:
           add_plugin "Windows/windows_needs_reboot_check"     "windows" "zabbix-agent2-needs-reboot-check.exe"
           add_plugin "Windows/windows_network_connections"    "windows" "zabbix-agent2-windows-network-connections.exe"
           add_plugin "Windows/windows_service_listening_port" "windows" "zabbix-agent2-windows-service-listening-port.exe"
+          add_plugin "Windows/WindowsLatestUpdate"            "windows" "zabbix-agent2-WindowsLatestUpdate.exe"
 
           # Linux plugins
           add_plugin "Linux/linux_needs_reboot_check"         "linux"   "zabbix-agent2-needs-reboot-check"
