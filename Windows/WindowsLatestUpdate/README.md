@@ -21,6 +21,9 @@ Items
   primary metric for triggers.
 - wlu.update.installed[YYYY-MM]
   Same check against an explicit month, e.g. wlu.update.installed[2026-04].
+- wlu.update.installed.previous
+  Returns 0 if the previous month's CU is installed, 1 otherwise. Useful for
+  an escalated trigger once Patch Tuesday for last month has come and gone.
 - wlu.update.status
   Returns a JSON snapshot:
 
@@ -43,6 +46,9 @@ Items
   On transient collection failures the plugin serves the last good payload for
   up to 30 minutes and sets "CollectionMode" to "cached" plus
   "CollectionError" to the live error.
+
+- wlu.update.status.previous
+  Same JSON snapshot, but for the previous month.
 
 Build
 
@@ -70,18 +76,24 @@ Standalone self-test (without the agent)
   & "C:\Program Files\Zabbix Agent 2\zabbix-agent2-windows-latest-update.exe" --standalone --verbose
   & "C:\Program Files\Zabbix Agent 2\zabbix-agent2-windows-latest-update.exe" --standalone --verbose --month 2026-04
 
-Trigger example
+Trigger examples
 
-  Last value of wlu.update.installed equals 1 for 24h
-    -> "Current month's Windows Cumulative Update is missing on {HOST.NAME}"
+  Last value of wlu.update.installed equals 1
+    -> Information: "Current month CU missing on {HOST.NAME}"
+  Last value of wlu.update.installed.previous equals 1
+    -> Average:     "Previous month CU missing on {HOST.NAME}"
+
+The bundled template "Windows Latest CU Update Zabbix Agent Active" already
+wires both triggers with these severities.
 
 Patch Tuesday caveat
 
 Microsoft releases the monthly CU on the second Tuesday. Early in the month
 the current CU has not been released yet, so a naive trigger on
 wlu.update.installed=1 will fire from the 1st until the host installs the new
-CU. Tune the trigger with a time window (for example, only alert after day
-15), or point templates at a previous month with the parameterized key.
+CU. The current-month trigger therefore ships at Information severity. The
+previous-month trigger ships at Average severity because by then Patch Tuesday
+has long passed and a missing CU represents real exposure.
 
 Permissions
 

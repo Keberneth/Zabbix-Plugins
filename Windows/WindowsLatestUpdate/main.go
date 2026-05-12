@@ -19,12 +19,14 @@ import (
 )
 
 const (
-	pluginName        = "WindowsLatestUpdate"
-	pluginVersion     = "1.0.0"
-	metricStatusJSON  = "wlu.update.status"
-	metricInstalled   = "wlu.update.installed"
-	powerShellTimeout = 60 * time.Second
-	cacheTTL          = 30 * time.Minute
+	pluginName           = "WindowsLatestUpdate"
+	pluginVersion        = "1.1.0"
+	metricStatusJSON     = "wlu.update.status"
+	metricInstalled      = "wlu.update.installed"
+	metricStatusJSONPrev = "wlu.update.status.previous"
+	metricInstalledPrev  = "wlu.update.installed.previous"
+	powerShellTimeout    = 60 * time.Second
+	cacheTTL             = 30 * time.Minute
 )
 
 var (
@@ -228,6 +230,10 @@ func run() error {
 		"Returns a JSON snapshot describing whether the current month's Windows Cumulative Update is installed.",
 		metricInstalled,
 		"Returns 0 if the current month's Windows Cumulative Update is installed, 1 otherwise. Optional parameter: yyyy-MM month override.",
+		metricStatusJSONPrev,
+		"Returns a JSON snapshot describing whether the previous month's Windows Cumulative Update is installed.",
+		metricInstalledPrev,
+		"Returns 0 if the previous month's Windows Cumulative Update is installed, 1 otherwise. No parameters.",
 	)
 	if err != nil {
 		return errs.Wrap(err, "failed to register metrics")
@@ -249,13 +255,22 @@ func run() error {
 }
 
 func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider) (any, error) {
-	if key != metricStatusJSON && key != metricInstalled {
-		return nil, errs.Errorf("unknown item key %q", key)
-	}
+	var month string
 
-	month, err := parseMonthParam(params)
-	if err != nil {
-		return nil, err
+	switch key {
+	case metricStatusJSON, metricInstalled:
+		parsed, err := parseMonthParam(params)
+		if err != nil {
+			return nil, err
+		}
+		month = parsed
+	case metricStatusJSONPrev, metricInstalledPrev:
+		if len(params) > 0 && strings.TrimSpace(params[0]) != "" {
+			return nil, errs.Errorf("item key %q does not accept parameters", key)
+		}
+		month = previousMonth(time.Now())
+	default:
+		return nil, errs.Errorf("unknown item key %q", key)
 	}
 
 	payload, err := p.collect(month)
@@ -264,13 +279,19 @@ func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider
 	}
 
 	switch key {
-	case metricStatusJSON:
+	case metricStatusJSON, metricStatusJSONPrev:
 		return payload, nil
-	case metricInstalled:
+	case metricInstalled, metricInstalledPrev:
 		return extractInstalled(payload)
 	}
 
 	return nil, errs.Errorf("unhandled item key %q", key)
+}
+
+func previousMonth(now time.Time) string {
+	year, month, _ := now.Date()
+	prev := time.Date(year, month-1, 1, 0, 0, 0, 0, now.Location())
+	return prev.Format("2006-01")
 }
 
 func parseMonthParam(params []string) (string, error) {
