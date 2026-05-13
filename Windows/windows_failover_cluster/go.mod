@@ -1,6 +1,6 @@
 module windowsfailovercluster
 
-go 1.25.10
+go 1.26.3
 
 require golang.zabbix.com/sdk v1.2.2-0.20251205121608-d9643740a558
 

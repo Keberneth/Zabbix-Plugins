@@ -1,6 +1,6 @@
 module windows_latest_update
 
-go 1.25.10
+go 1.26.3
 
 require golang.zabbix.com/sdk v1.2.2-0.20251205121637-3b95c058c0e4
 
