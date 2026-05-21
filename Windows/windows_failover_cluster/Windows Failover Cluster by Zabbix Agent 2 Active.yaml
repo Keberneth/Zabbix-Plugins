@@ -8,7 +8,7 @@ zabbix_export:
       template: 'Windows Failover Cluster by Zabbix Agent 2 Active'
       name: 'Windows Failover Cluster by Zabbix Agent 2 Active'
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-1
       groups:
         - name: Templates
