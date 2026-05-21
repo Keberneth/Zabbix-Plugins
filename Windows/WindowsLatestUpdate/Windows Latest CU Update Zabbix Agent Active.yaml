@@ -9,7 +9,7 @@ zabbix_export:
       name: 'Windows Latest CU Update Zabbix Agent Active'
       description: 'Zabbix plugin needed for this template.'
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0.0
       groups:
         - name: Templates
