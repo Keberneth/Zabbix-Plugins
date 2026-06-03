@@ -349,7 +349,11 @@ const (
 	ldapAuthNegotiate = ldapAuthOtherKind | 0x0400 // from winldap.h
 
 	ldapFilterError       = 87
-	ldapNoResultsReturned = 94
+	// Some DCs reject server-side matching on constructed attributes (e.g.
+	// msDS-UserPasswordExpiryTimeComputed) with LDAP_INAPPROPRIATE_MATCHING (18)
+	// rather than LDAP_FILTER_ERROR (87).
+	ldapInappropriateMatching = 18
+	ldapNoResultsReturned     = 94
 	// AD's default MaxPageSize is 1000; using it halves the number of paged
 	// round-trips versus 500. If a DC policy caps it lower, AD simply returns
 	// fewer entries per page, so 1000 is a safe ceiling.
@@ -1124,15 +1128,26 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 		return nil
 	}
 
+	// Some directories reject server-side matching on the constructed attribute
+	// msDS-UserPasswordExpiryTimeComputed (LDAP_FILTER_ERROR=87 or
+	// LDAP_INAPPROPRIATE_MATCHING=18). Once we see that, stop attempting the
+	// computed filter and use the plain fallback (expiry window is evaluated
+	// client-side in processEntry) for all remaining bases. Dedup via the seen
+	// map makes re-processing on a same-base fallback safe.
+	useFallback := false
 	for _, baseDN := range bases {
-		err := conn.searchEach(baseDN, ldapScopeSubtree, filterWithComputed, attrs, processEntry)
-		if err != nil {
-			// If the directory doesn't accept the filter (common for some constructed attributes), retry.
-			if le, ok := err.(ldapError); ok && le.code == ldapFilterError {
-				err = conn.searchEach(baseDN, ldapScopeSubtree, filterFallback, attrs, processEntry)
+		if !useFallback {
+			err := conn.searchEach(baseDN, ldapScopeSubtree, filterWithComputed, attrs, processEntry)
+			if err == nil {
+				continue
 			}
+			le, ok := err.(ldapError)
+			if !ok || (le.code != ldapFilterError && le.code != ldapInappropriateMatching) {
+				return nil, err
+			}
+			useFallback = true
 		}
-		if err != nil {
+		if err := conn.searchEach(baseDN, ldapScopeSubtree, filterFallback, attrs, processEntry); err != nil {
 			return nil, err
 		}
 	}
