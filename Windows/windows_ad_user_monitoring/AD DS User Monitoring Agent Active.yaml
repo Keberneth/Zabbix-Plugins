@@ -30,7 +30,7 @@ zabbix_export:
           when the agent sends the master item value on schedule.
       vendor:
         name: Keberneth
-        version: '7.0.0.4'
+        version: 7.0-0-4
       groups:
         - name: Templates
       items:
@@ -379,10 +379,12 @@ zabbix_export:
           delay: '0'
           item_prototypes:
             - uuid: d9c7d1f877324e4b9b075d1ae1d985c9
-              name: 'AD User: [{#USER}] Inactive'
+              name: 'AD User: [{#USER}] Days since last logon'
               type: DEPENDENT
-              key: 'InactiveUsers[{#USER}]'
+              key: 'InactiveUsers.days[{#USER}]'
               delay: '0'
+              value_type: UNSIGNED
+              description: 'Days since replicated lastLogonTimestamp. For never-logged-on users, this is calculated from whenCreated.'
               preprocessing:
                 - type: JAVASCRIPT
                   parameters:
@@ -396,7 +398,13 @@ zabbix_export:
                         arr = arr ? [arr] : [];
                       }
                       for (var i = 0; i < arr.length; i++) {
-                        if (arr[i].sAMAccountName === "{#USER}") return 1;
+                        if (arr[i].sAMAccountName === "{#USER}") {
+                          var d = arr[i].DaysInactive;
+                          if (d === null || d === undefined || d === "") return 0;
+                          d = Number(d);
+                          if (isNaN(d) || d < 0) return 0;
+                          return Math.floor(d);
+                        }
                       }
                       return 0;
               master_item:
@@ -405,9 +413,10 @@ zabbix_export:
                 - tag: 'Customer Read'
               trigger_prototypes:
                 - uuid: 509220a3f8654b9fb0b6a1d64a01e3d2
-                  expression: 'last(/AD DS User Monitoring Agent Active/InactiveUsers[{#USER}])=1'
-                  name: 'Account {#USER} inactive for {#DAYS_INACTIVE} days (last logon {#LASTLOGON})'
+                  expression: 'last(/AD DS User Monitoring Agent Active/InactiveUsers.days[{#USER}])>={$AD.INACTIVE.OLDER.THAN.DAYS}'
+                  name: 'Account {#USER} inactive for {ITEM.LASTVALUE} days (last logon {#LASTLOGON})'
                   priority: WARNING
+                  description: 'The user last logon age is greater than or equal to {$AD.INACTIVE.OLDER.THAN.DAYS} days. The template default is 30 days.'
           master_item:
             key: 'InactiveUsers[{$AD.INACTIVE.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
           preprocessing:
@@ -451,7 +460,7 @@ zabbix_export:
           description: 'Aggregate threshold. Warn when the number of inactive (stale) AD users exceeds this count.'
         - macro: '{$AD.INACTIVE.OLDER.THAN.DAYS}'
           value: '30'
-          description: 'Inactive (stale) user threshold (days). Warn when a user''s last logon (lastLogonTimestamp) is older than this. Used by InactiveUsers[days,...].'
+          description: 'Inactive (stale) user threshold (days). Per-user trigger fires when days since replicated lastLogonTimestamp is greater than or equal to this value. Used by InactiveUsers[days,...]. Default: 30.'
         - macro: '{$AD.LDAP.SERVER}'
           description: |
             Optional: specify the domain controller to query (hostname/FQDN).

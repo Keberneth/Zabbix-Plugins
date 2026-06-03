@@ -10,7 +10,7 @@ The plugin and template cover these user conditions:
 - disabled users older than a defined number of days
 - users whose passwords expire within a defined number of days
 - users whose accounts expire within a defined number of days
-- inactive (stale) users whose last logon is older than a defined number of days
+- inactive (stale) users whose replicated lastLogonTimestamp is older than a defined number of days
 
 The template uses active master items that return JSON, then dependent discovery rules, item prototypes, and trigger prototypes to create per-user monitoring and alerts.
 
@@ -24,7 +24,7 @@ The template uses active master items that return JSON, then dependent discovery
 
 ## Requirements
 
-- Windows AD serrver running Zabbix Agent 2 or server that can query the AD
+- Windows AD server running Zabbix Agent 2 or server that can query the AD
 - Go toolchain on computer that will build the plugin .exe file
 
 ## Build
@@ -90,7 +90,7 @@ Or use:
 |---|---:|---|
 | `{$AD.ACCOUNT.EXPIRES.IN.DAYS}` | `7` | Alert window for accounts that are about to expire |
 | `{$AD.DISABLED.OLDER.THAN.DAYS}` | `30` | Threshold for disabled users |
-| `{$AD.INACTIVE.OLDER.THAN.DAYS}` | `30` | Threshold (days) for inactive/stale users by last logon |
+| `{$AD.INACTIVE.OLDER.THAN.DAYS}` | `30` | Warning threshold for inactive/stale users. The per-user trigger fires when days since replicated lastLogonTimestamp is greater than or equal to this value. |
 | `{$AD.INACTIVE.COUNT.WARN}` | `10` | Aggregate trigger: warn when the inactive-user count exceeds this |
 | `{$AD.LDAP.SERVER}` | empty | Optional domain controller hostname or FQDN |
 | `{$AD.PASSWORD.EXPIRES.IN.DAYS}` | `7` | Alert window for passwords that are about to expire |
@@ -128,6 +128,28 @@ UsersAboutToBeDisabled[days,searchBases,server]
 InactiveUsers[days,searchBases,server]
 ```
 
+
+## Inactive user monitoring
+
+`InactiveUsers[days,searchBases,server]` returns enabled AD users whose replicated `lastLogonTimestamp` is older than the supplied number of days. The default template macro is `{$AD.INACTIVE.OLDER.THAN.DAYS}=30`.
+
+The dependent item prototype `InactiveUsers.days[{#USER}]` stores the numeric number of inactive days per discovered user. Its trigger fires when:
+
+```text
+last(/AD DS User Monitoring Agent Active/InactiveUsers.days[{#USER}])>={$AD.INACTIVE.OLDER.THAN.DAYS}
+```
+
+For users that have never logged on, the plugin uses `whenCreated` as the reference date and sets `NeverLoggedOn=true` in the JSON output.
+
+Important: `lastLogonTimestamp` is replicated and suitable for stale-account detection, but it is not an exact real-time last-logon audit field. In a default AD configuration it can lag behind the actual last logon by roughly 9-14 days.
+
+## Bug fixes in this update
+
+- Added/updated the per-user inactive trigger so the trigger expression compares the per-user inactive-day value directly to `{$AD.INACTIVE.OLDER.THAN.DAYS}`.
+- Added LDAP paged searches in the plugin for user queries. This avoids missing results when a search result exceeds the default AD `MaxPageSize` limit.
+- Changed plugin error handling so LDAP/query failures are returned to Zabbix as item errors instead of silently returning `[]`.
+- Kept all existing Zabbix UUID values as valid UUIDv4-compatible 32-character hex strings.
+
 ## Notes
 
 - LDAP binding uses the current Windows security context, so the Agent 2 service account should have the required read access in AD.
@@ -138,3 +160,4 @@ InactiveUsers[days,searchBases,server]
 ## Version
 
 Template export version: `7.0`
+Template vendor version: `7.0-0-4`

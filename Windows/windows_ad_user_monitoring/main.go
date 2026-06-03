@@ -100,15 +100,15 @@ func (p *impl) logf(format string, args ...interface{}) {
 	}
 }
 
-func jsonStringOrEmptyArray(p *impl, ctx string, v interface{}, err error) (string, error) {
+func jsonStringOrError(p *impl, ctx string, v interface{}, err error) (string, error) {
 	if err != nil {
 		p.logf("[%s] %v", ctx, err)
-		return "[]", nil
+		return "", err
 	}
 	b, mErr := json.Marshal(v)
 	if mErr != nil {
 		p.logf("[%s] JSON marshal error: %v", ctx, mErr)
-		return "[]", nil
+		return "", mErr
 	}
 	return string(b), nil
 }
@@ -155,7 +155,10 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		searchBases := parseSearchBases(searchBasesRaw)
 
 		users, err := getLockedOutUsers(searchBases, server)
-		out, _ := jsonStringOrEmptyArray(p, keyLockedOutUsers, users, err)
+		out, jErr := jsonStringOrError(p, keyLockedOutUsers, users, err)
+		if jErr != nil {
+			return nil, jErr
+		}
 		return out, nil
 
 	case keyDisabledUsers:
@@ -180,7 +183,10 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		searchBases := parseSearchBases(searchBasesRaw)
 
 		users, err := getDisabledUsers(days, searchBases, server)
-		out, _ := jsonStringOrEmptyArray(p, keyDisabledUsers, users, err)
+		out, jErr := jsonStringOrError(p, keyDisabledUsers, users, err)
+		if jErr != nil {
+			return nil, jErr
+		}
 		return out, nil
 
 	case keyPasswordExpiringUsers:
@@ -205,7 +211,10 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		searchBases := parseSearchBases(searchBasesRaw)
 
 		users, err := getPasswordExpiringUsers(days, searchBases, server)
-		out, _ := jsonStringOrEmptyArray(p, keyPasswordExpiringUsers, users, err)
+		out, jErr := jsonStringOrError(p, keyPasswordExpiringUsers, users, err)
+		if jErr != nil {
+			return nil, jErr
+		}
 		return out, nil
 
 	case keyUsersAboutToBeDisabled:
@@ -230,7 +239,10 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		searchBases := parseSearchBases(searchBasesRaw)
 
 		users, err := getUsersAboutToBeDisabled(days, searchBases, server)
-		out, _ := jsonStringOrEmptyArray(p, keyUsersAboutToBeDisabled, users, err)
+		out, jErr := jsonStringOrError(p, keyUsersAboutToBeDisabled, users, err)
+		if jErr != nil {
+			return nil, jErr
+		}
 		return out, nil
 
 	case keyInactiveUsers:
@@ -255,7 +267,10 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		searchBases := parseSearchBases(searchBasesRaw)
 
 		users, err := getInactiveUsers(days, searchBases, server)
-		out, _ := jsonStringOrEmptyArray(p, keyInactiveUsers, users, err)
+		out, jErr := jsonStringOrError(p, keyInactiveUsers, users, err)
+		if jErr != nil {
+			return nil, jErr
+		}
 		return out, nil
 
 	default:
@@ -280,7 +295,11 @@ func main() {
 				}
 			}
 			p := &impl{}
-			v, _ := p.Export(key, params, nil)
+			v, err := p.Export(key, params, nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 			fmt.Println(v)
 			os.Exit(0)
 		}
@@ -329,7 +348,9 @@ const (
 	ldapAuthOtherKind = 0x86
 	ldapAuthNegotiate = ldapAuthOtherKind | 0x0400 // from winldap.h
 
-	ldapFilterError = 87
+	ldapFilterError       = 87
+	ldapNoResultsReturned = 94
+	ldapDefaultPageSize   = 500
 )
 
 type ldapError struct {
@@ -348,21 +369,25 @@ type berval struct {
 }
 
 var (
-	wldap32               = windows.NewLazySystemDLL("wldap32.dll")
-	procLdapInitW         = wldap32.NewProc("ldap_initW")
-	procLdapSetOptionW    = wldap32.NewProc("ldap_set_optionW")
-	procLdapBindSW        = wldap32.NewProc("ldap_bind_sW")
-	procLdapSearchSW      = wldap32.NewProc("ldap_search_sW")
-	procLdapFirstEntry    = wldap32.NewProc("ldap_first_entry")
-	procLdapNextEntry     = wldap32.NewProc("ldap_next_entry")
-	procLdapGetDnW        = wldap32.NewProc("ldap_get_dnW")
-	procLdapMemFreeW      = wldap32.NewProc("ldap_memfreeW")
-	procLdapGetValuesW    = wldap32.NewProc("ldap_get_valuesW")
-	procLdapValueFreeW    = wldap32.NewProc("ldap_value_freeW")
-	procLdapGetValuesLenW = wldap32.NewProc("ldap_get_values_lenW")
-	procLdapValueFreeLen  = wldap32.NewProc("ldap_value_free_len")
-	procLdapMsgFree       = wldap32.NewProc("ldap_msgfree")
-	procLdapUnbind        = wldap32.NewProc("ldap_unbind")
+	wldap32                   = windows.NewLazySystemDLL("wldap32.dll")
+	procLdapInitW             = wldap32.NewProc("ldap_initW")
+	procLdapSetOptionW        = wldap32.NewProc("ldap_set_optionW")
+	procLdapBindSW            = wldap32.NewProc("ldap_bind_sW")
+	procLdapSearchSW          = wldap32.NewProc("ldap_search_sW")
+	procLdapSearchInitPageW   = wldap32.NewProc("ldap_search_init_pageW")
+	procLdapGetNextPageS      = wldap32.NewProc("ldap_get_next_page_s")
+	procLdapSearchAbandonPage = wldap32.NewProc("ldap_search_abandon_page")
+	procLdapGetLastError      = wldap32.NewProc("LdapGetLastError")
+	procLdapFirstEntry        = wldap32.NewProc("ldap_first_entry")
+	procLdapNextEntry         = wldap32.NewProc("ldap_next_entry")
+	procLdapGetDnW            = wldap32.NewProc("ldap_get_dnW")
+	procLdapMemFreeW          = wldap32.NewProc("ldap_memfreeW")
+	procLdapGetValuesW        = wldap32.NewProc("ldap_get_valuesW")
+	procLdapValueFreeW        = wldap32.NewProc("ldap_value_freeW")
+	procLdapGetValuesLenW     = wldap32.NewProc("ldap_get_values_lenW")
+	procLdapValueFreeLen      = wldap32.NewProc("ldap_value_free_len")
+	procLdapMsgFree           = wldap32.NewProc("ldap_msgfree")
+	procLdapUnbind            = wldap32.NewProc("ldap_unbind")
 )
 
 type ldapConn struct {
@@ -451,6 +476,106 @@ func (c *ldapConn) search(baseDN string, scope uint32, filter string, attrs []st
 		return 0, ldapError{op: "ldap_search_sW", code: uint32(rr)}
 	}
 	return res, nil
+}
+
+func makeLDAPAttrPtrs(attrs []string) ([]*uint16, error) {
+	if len(attrs) == 0 {
+		return nil, nil
+	}
+	attrPtrs := make([]*uint16, 0, len(attrs)+1)
+	for _, a := range attrs {
+		p, err := windows.UTF16PtrFromString(a)
+		if err != nil {
+			return nil, err
+		}
+		attrPtrs = append(attrPtrs, p)
+	}
+	attrPtrs = append(attrPtrs, nil)
+	return attrPtrs, nil
+}
+
+func ldapAttrPtrsArg(attrPtrs []*uint16) uintptr {
+	if len(attrPtrs) == 0 {
+		return 0
+	}
+	return uintptr(unsafe.Pointer(&attrPtrs[0]))
+}
+
+func ldapLastError() uint32 {
+	r, _, _ := procLdapGetLastError.Call()
+	return uint32(r)
+}
+
+func (c *ldapConn) searchEach(baseDN string, scope uint32, filter string, attrs []string, fn func(entry uintptr) error) error {
+	basePtr, err := windows.UTF16PtrFromString(baseDN)
+	if err != nil {
+		return err
+	}
+	filterPtr, err := windows.UTF16PtrFromString(filter)
+	if err != nil {
+		return err
+	}
+	attrPtrs, err := makeLDAPAttrPtrs(attrs)
+	if err != nil {
+		return err
+	}
+
+	searchHandle, _, _ := procLdapSearchInitPageW.Call(
+		c.ld,
+		uintptr(unsafe.Pointer(basePtr)),
+		uintptr(scope),
+		uintptr(unsafe.Pointer(filterPtr)),
+		ldapAttrPtrsArg(attrPtrs),
+		0,
+		0,
+		0,
+		0,
+		0,
+		0,
+	)
+	if searchHandle == 0 {
+		code := ldapLastError()
+		return ldapError{op: "ldap_search_init_pageW", code: code}
+	}
+	defer func() {
+		_, _, _ = procLdapSearchAbandonPage.Call(c.ld, searchHandle)
+	}()
+
+	for {
+		var totalCount uint32
+		var res uintptr
+		rr, _, _ := procLdapGetNextPageS.Call(
+			c.ld,
+			searchHandle,
+			0,
+			uintptr(ldapDefaultPageSize),
+			uintptr(unsafe.Pointer(&totalCount)),
+			uintptr(unsafe.Pointer(&res)),
+		)
+
+		if rr != 0 && rr != ldapNoResultsReturned {
+			if res != 0 {
+				_, _, _ = procLdapMsgFree.Call(res)
+			}
+			return ldapError{op: "ldap_get_next_page_s", code: uint32(rr)}
+		}
+
+		if res != 0 {
+			for entry, _, _ := procLdapFirstEntry.Call(c.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(c.ld, res, entry) {
+				if err := fn(entry); err != nil {
+					_, _, _ = procLdapMsgFree.Call(res)
+					return err
+				}
+			}
+			_, _, _ = procLdapMsgFree.Call(res)
+		}
+
+		if rr == ldapNoResultsReturned {
+			break
+		}
+	}
+
+	return nil
 }
 
 func (c *ldapConn) getFirstStringValue(entry uintptr, attr string) string {
@@ -665,12 +790,7 @@ func getLockedOutUsers(searchBases []string, server string) ([]lockedOutUser, er
 	seen := make(map[string]struct{}, 128)
 
 	for _, baseDN := range bases {
-		res, err := conn.search(baseDN, ldapScopeSubtree, filter, attrs)
-		if err != nil {
-			return nil, err
-		}
-
-		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
+		err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, func(entry uintptr) error {
 			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
 			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
 			dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
@@ -684,8 +804,8 @@ func getLockedOutUsers(searchBases []string, server string) ([]lockedOutUser, er
 			compStr := strings.TrimSpace(conn.getFirstStringValue(entry, "msDS-User-Account-Control-Computed"))
 			comp, _ := strconv.Atoi(compStr)
 			if (comp & ufLockout) == 0 {
-				// Not currently locked out (lockout may have expired)
-				continue
+				// Not currently locked out (lockout may have expired).
+				return nil
 			}
 
 			key := strings.ToLower(strings.TrimSpace(dn))
@@ -694,7 +814,7 @@ func getLockedOutUsers(searchBases []string, server string) ([]lockedOutUser, er
 			}
 			if key != "" {
 				if _, ok := seen[key]; ok {
-					continue
+					return nil
 				}
 				seen[key] = struct{}{}
 			}
@@ -737,9 +857,11 @@ func getLockedOutUsers(searchBases []string, server string) ([]lockedOutUser, er
 				WhenChangedUtc:     whenChangedOut,
 				UserAccountControl: uac,
 			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-
-		_, _, _ = procLdapMsgFree.Call(res)
 	}
 
 	return out, nil
@@ -779,12 +901,7 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 	seen := make(map[string]struct{}, 256)
 
 	for _, baseDN := range bases {
-		res, err := conn.search(baseDN, ldapScopeSubtree, filter, attrs)
-		if err != nil {
-			return nil, err
-		}
-
-		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
+		err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, func(entry uintptr) error {
 			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
 			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
 			dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
@@ -798,7 +915,7 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 			}
 			if key != "" {
 				if _, ok := seen[key]; ok {
-					continue
+					return nil
 				}
 				seen[key] = struct{}{}
 			}
@@ -824,7 +941,7 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 				whenChangedOut = &s
 			}
 
-			// Find last originating change time for userAccountControl in msDS-ReplAttributeMetaData;binary
+			// Find last originating change time for userAccountControl in msDS-ReplAttributeMetaData;binary.
 			metaBlobs := conn.getBinaryValues(entry, "msDS-ReplAttributeMetaData;binary")
 			var disabledSince *time.Time
 			for _, b := range metaBlobs {
@@ -846,12 +963,12 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 
 			// If we still can't determine disabled-since, skip.
 			if disabledSince == nil {
-				continue
+				return nil
 			}
 
-			// Filter by cutoff (disabled longer than N days)
+			// Filter by cutoff (disabled longer than N days).
 			if disabledSince.After(cutoff) {
-				continue
+				return nil
 			}
 
 			disabledSinceStr := disabledSince.UTC().Format(time.RFC3339Nano)
@@ -868,9 +985,11 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 				WhenChangedUtc:     whenChangedOut,
 				UserAccountControl: uac,
 			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-
-		_, _, _ = procLdapMsgFree.Call(res)
 	}
 
 	return out, nil
@@ -915,7 +1034,7 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 		thrFt,
 	)
 
-	// Fallback: do not use msDS-UserPasswordExpiryTimeComputed in the LDAP filter
+	// Fallback: do not use msDS-UserPasswordExpiryTimeComputed in the LDAP filter.
 	filterFallback := fmt.Sprintf(
 		"(&(objectCategory=person)(objectClass=user)"+
 			"(!(userAccountControl:1.2.840.113556.1.4.803:=2))"+
@@ -937,83 +1056,82 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 	var out []passwordExpiringUser
 	seen := make(map[string]struct{}, 256)
 
+	processEntry := func(entry uintptr) error {
+		sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
+		if sam == "" {
+			return nil
+		}
+
+		upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
+		dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
+		if dn == "" {
+			dn = conn.getDN(entry)
+		}
+
+		key := strings.ToLower(strings.TrimSpace(dn))
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(sam))
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				return nil
+			}
+			seen[key] = struct{}{}
+		}
+
+		uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
+		uac, _ := strconv.Atoi(uacStr)
+		enabled := (uac & uacAccountDisable) == 0
+
+		expStr := strings.TrimSpace(conn.getFirstStringValue(entry, "msDS-UserPasswordExpiryTimeComputed"))
+		if expStr == "" {
+			return nil
+		}
+
+		ft, err := strconv.ParseUint(expStr, 10, 64)
+		if err != nil {
+			return nil
+		}
+		if ft == 0 || ft >= adNeverExpiresInt8 {
+			// Password never expires / not applicable.
+			return nil
+		}
+
+		expiry := filetimeToTime(ft)
+		// Only include "about to expire" in the future window.
+		if expiry.Before(now) {
+			return nil
+		}
+		if expiry.After(threshold) {
+			return nil
+		}
+
+		expiryStr := expiry.UTC().Format(time.RFC3339Nano)
+		daysToExpire := int(expiry.Sub(now).Hours() / 24)
+
+		out = append(out, passwordExpiringUser{
+			SamAccountName:     sam,
+			UserPrincipalName:  upn,
+			DistinguishedName:  dn,
+			Enabled:            enabled,
+			PasswordExpiresUtc: &expiryStr,
+			DaysToExpire:       &daysToExpire,
+			UserAccountControl: uac,
+		})
+		return nil
+	}
+
 	for _, baseDN := range bases {
-		res, err := conn.search(baseDN, ldapScopeSubtree, filterWithComputed, attrs)
+		err := conn.searchEach(baseDN, ldapScopeSubtree, filterWithComputed, attrs, processEntry)
 		if err != nil {
 			// If the directory doesn't accept the filter (common for some constructed attributes), retry.
 			if le, ok := err.(ldapError); ok && le.code == ldapFilterError {
-				res, err = conn.search(baseDN, ldapScopeSubtree, filterFallback, attrs)
+				err = conn.searchEach(baseDN, ldapScopeSubtree, filterFallback, attrs, processEntry)
 			}
 		}
 		if err != nil {
 			return nil, err
 		}
-
-		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
-			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
-			if sam == "" {
-				continue
-			}
-
-			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
-			dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
-			if dn == "" {
-				dn = conn.getDN(entry)
-			}
-
-			key := strings.ToLower(strings.TrimSpace(dn))
-			if key == "" {
-				key = strings.ToLower(strings.TrimSpace(sam))
-			}
-			if key != "" {
-				if _, ok := seen[key]; ok {
-					continue
-				}
-				seen[key] = struct{}{}
-			}
-
-			uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
-			uac, _ := strconv.Atoi(uacStr)
-			enabled := (uac & uacAccountDisable) == 0
-
-			expStr := strings.TrimSpace(conn.getFirstStringValue(entry, "msDS-UserPasswordExpiryTimeComputed"))
-			if expStr == "" {
-				continue
-			}
-
-			ft, err := strconv.ParseUint(expStr, 10, 64)
-			if err != nil {
-				continue
-			}
-			if ft == 0 || ft >= adNeverExpiresInt8 {
-				// Password never expires / not applicable
-				continue
-			}
-
-			expiry := filetimeToTime(ft)
-			// Only include "about to expire" in the future window.
-			if expiry.Before(now) {
-				continue
-			}
-			if expiry.After(threshold) {
-				continue
-			}
-
-			expiryStr := expiry.UTC().Format(time.RFC3339Nano)
-			daysToExpire := int(expiry.Sub(now).Hours() / 24)
-
-			out = append(out, passwordExpiringUser{
-				SamAccountName:     sam,
-				UserPrincipalName:  upn,
-				DistinguishedName:  dn,
-				Enabled:            enabled,
-				PasswordExpiresUtc: &expiryStr,
-				DaysToExpire:       &daysToExpire,
-				UserAccountControl: uac,
-			})
-		}
-
-		_, _, _ = procLdapMsgFree.Call(res)
 	}
 
 	return out, nil
@@ -1061,15 +1179,10 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 	seen := make(map[string]struct{}, 256)
 
 	for _, baseDN := range bases {
-		res, err := conn.search(baseDN, ldapScopeSubtree, filter, attrs)
-		if err != nil {
-			return nil, err
-		}
-
-		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
+		err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, func(entry uintptr) error {
 			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
 			if sam == "" {
-				continue
+				return nil
 			}
 
 			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
@@ -1084,7 +1197,7 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 			}
 			if key != "" {
 				if _, ok := seen[key]; ok {
-					continue
+					return nil
 				}
 				seen[key] = struct{}{}
 			}
@@ -1095,24 +1208,24 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 
 			expStr := strings.TrimSpace(conn.getFirstStringValue(entry, "accountExpires"))
 			if expStr == "" {
-				continue
+				return nil
 			}
 
 			ft, err := strconv.ParseUint(expStr, 10, 64)
 			if err != nil {
-				continue
+				return nil
 			}
 			if ft == 0 || ft >= adNeverExpiresInt8 {
-				// Account never expires
-				continue
+				// Account never expires.
+				return nil
 			}
 
 			expiry := filetimeToTime(ft)
 			if expiry.Before(now) {
-				continue
+				return nil
 			}
 			if expiry.After(threshold) {
-				continue
+				return nil
 			}
 
 			expiryStr := expiry.UTC().Format(time.RFC3339Nano)
@@ -1127,9 +1240,11 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 				DaysToDisable:      &daysToDisable,
 				UserAccountControl: uac,
 			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-
-		_, _, _ = procLdapMsgFree.Call(res)
 	}
 
 	return out, nil
@@ -1178,15 +1293,10 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 	seen := make(map[string]struct{}, 256)
 
 	for _, baseDN := range bases {
-		res, err := conn.search(baseDN, ldapScopeSubtree, filter, attrs)
-		if err != nil {
-			return nil, err
-		}
-
-		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
+		err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, func(entry uintptr) error {
 			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
 			if sam == "" {
-				continue
+				return nil
 			}
 
 			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
@@ -1201,7 +1311,7 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 			}
 			if key != "" {
 				if _, ok := seen[key]; ok {
-					continue
+					return nil
 				}
 				seen[key] = struct{}{}
 			}
@@ -1236,7 +1346,7 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 			if lastLogon != nil {
 				// Defensive: server already filtered, but skip if not actually stale.
 				if lastLogon.After(cutoff) {
-					continue
+					return nil
 				}
 				s := lastLogon.UTC().Format(time.RFC3339Nano)
 				lastLogonOut = &s
@@ -1246,11 +1356,11 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 				neverLoggedOn = true
 				if whenCreatedTime == nil {
 					// No reference point to judge staleness; skip.
-					continue
+					return nil
 				}
 				if whenCreatedTime.After(cutoff) {
 					// Recently created and never used yet; not stale.
-					continue
+					return nil
 				}
 				reference = *whenCreatedTime
 			}
@@ -1268,9 +1378,11 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 				WhenCreatedUtc:     whenCreatedOut,
 				UserAccountControl: uac,
 			})
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
-
-		_, _, _ = procLdapMsgFree.Call(res)
 	}
 
 	return out, nil
