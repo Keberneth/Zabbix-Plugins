@@ -1266,19 +1266,16 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 
 	now := time.Now().UTC()
 	cutoff := now.AddDate(0, 0, -days)
-	cutoffFt := timeToFiletime(cutoff)
 
-	// Enabled users whose replicated last logon (lastLogonTimestamp) is older
-	// than the cutoff, OR who have never logged on (attribute not present).
-	// lastLogonTimestamp is the domain-replicated value (accurate to ~9-14 days),
-	// which is the correct attribute for detecting stale accounts across DCs.
-	filter := fmt.Sprintf(
-		"(&(objectCategory=person)(objectClass=user)"+
-			"(!(userAccountControl:1.2.840.113556.1.4.803:=2))"+
-			"(|(lastLogonTimestamp<=%d)(!(lastLogonTimestamp=*)))"+
-			")",
-		cutoffFt,
-	)
+	// Use the cheapest fully index-backed filter (equivalent to Get-ADUser
+	// -Filter *) and decide staleness client-side below. Filtering server-side
+	// on lastLogonTimestamp is a non-indexed scan in AD (and a negated presence
+	// filter cannot use an index at all), which makes the DC do a full
+	// evaluation pass and frequently exceed the Zabbix item timeout or AD's
+	// MaxQueryDuration. lastLogonTimestamp is returned as an attribute instead,
+	// which is cheap. Enabled/disabled and the inactivity cutoff are evaluated
+	// in Go from the returned attributes.
+	filter := "(&(objectCategory=person)(objectClass=user))"
 
 	attrs := []string{
 		"sAMAccountName",
@@ -1319,6 +1316,13 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 			uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
 			uac, _ := strconv.Atoi(uacStr)
 			enabled := (uac & uacAccountDisable) == 0
+
+			// This item reports enabled stale accounts only; disabled accounts
+			// are covered by DisabledUsers. Skip disabled here (previously done
+			// by the server-side userAccountControl filter).
+			if !enabled {
+				return nil
+			}
 
 			whenCreatedStr := strings.TrimSpace(conn.getFirstStringValue(entry, "whenCreated"))
 			var whenCreatedTime *time.Time

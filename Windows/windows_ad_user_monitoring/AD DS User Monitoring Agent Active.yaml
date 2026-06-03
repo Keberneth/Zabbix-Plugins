@@ -42,7 +42,7 @@ zabbix_export:
           value_type: TEXT
           trends: '0'
           status: DISABLED
-          timeout: 600s
+          timeout: 90s
         - uuid: edbf9ec7c3bc484e8674fc7e7cce9c29
           name: 'AD Locked Users JSON'
           type: ZABBIX_ACTIVE
@@ -74,7 +74,7 @@ zabbix_export:
           delay: 24h
           value_type: TEXT
           trends: '0'
-          timeout: 600s
+          timeout: 90s
         - uuid: d9fd90f336a74024a6eded4a64ba0560
           name: 'AD Inactive Users Count'
           type: DEPENDENT
