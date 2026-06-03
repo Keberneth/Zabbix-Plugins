@@ -139,6 +139,17 @@ func parseSearchBases(raw string) []string {
 	return out
 }
 
+func parseBoolDefault(raw string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return def
+	}
+}
+
 func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	switch key {
 	case keyLockedOutUsers:
@@ -247,11 +258,13 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 
 	case keyInactiveUsers:
 		// Params:
-		// InactiveUsers[days,searchBases,server]
-		// days = how many days since last logon to consider a user inactive/stale
+		// InactiveUsers[days,searchBases,server,includeNeverLoggedOn]
+		// days = how many days since last logon to consider a user inactive/stale.
+		// includeNeverLoggedOn is optional and defaults to true for compatibility.
 		days := 30
 		searchBasesRaw := ""
 		server := ""
+		includeNeverLoggedOn := true
 
 		if len(params) >= 1 && strings.TrimSpace(params[0]) != "" {
 			if v, err := strconv.Atoi(strings.TrimSpace(params[0])); err == nil && v >= 0 {
@@ -264,9 +277,12 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		if len(params) >= 3 {
 			server = strings.TrimSpace(params[2])
 		}
+		if len(params) >= 4 {
+			includeNeverLoggedOn = parseBoolDefault(params[3], includeNeverLoggedOn)
+		}
 		searchBases := parseSearchBases(searchBasesRaw)
 
-		users, err := getInactiveUsers(days, searchBases, server)
+		users, err := getInactiveUsers(days, searchBases, server, includeNeverLoggedOn)
 		out, jErr := jsonStringOrError(p, keyInactiveUsers, users, err)
 		if jErr != nil {
 			return nil, jErr
@@ -348,7 +364,7 @@ const (
 	ldapAuthOtherKind = 0x86
 	ldapAuthNegotiate = ldapAuthOtherKind | 0x0400 // from winldap.h
 
-	ldapFilterError       = 87
+	ldapFilterError = 87
 	// Some DCs reject server-side matching on constructed attributes (e.g.
 	// msDS-UserPasswordExpiryTimeComputed) with LDAP_INAPPROPRIATE_MATCHING (18)
 	// rather than LDAP_FILTER_ERROR (87).
@@ -358,6 +374,8 @@ const (
 	// round-trips versus 500. If a DC policy caps it lower, AD simply returns
 	// fewer entries per page, so 1000 is a safe ceiling.
 	ldapDefaultPageSize = 1000
+	// Fail one slow LDAP page before Zabbix has to kill the plugin process.
+	ldapPageTimeoutSeconds = 30
 )
 
 type ldapError struct {
@@ -373,6 +391,13 @@ type berval struct {
 	bvLen uint32
 	_     uint32 // padding on 64-bit
 	bvVal *byte
+}
+
+// WinLDAP uses struct l_timeval with C long fields. On Windows, C long is 32-bit
+// on both 32-bit and 64-bit builds.
+type ldapTimeval struct {
+	tvSec  int32
+	tvUsec int32
 }
 
 var (
@@ -548,13 +573,15 @@ func (c *ldapConn) searchEach(baseDN string, scope uint32, filter string, attrs 
 		_, _, _ = procLdapSearchAbandonPage.Call(c.ld, searchHandle)
 	}()
 
+	pageTimeout := ldapTimeval{tvSec: ldapPageTimeoutSeconds}
+
 	for {
 		var totalCount uint32
 		var res uintptr
 		rr, _, _ := procLdapGetNextPageS.Call(
 			c.ld,
 			searchHandle,
-			0,
+			uintptr(unsafe.Pointer(&pageTimeout)),
 			uintptr(ldapDefaultPageSize),
 			uintptr(unsafe.Pointer(&totalCount)),
 			uintptr(unsafe.Pointer(&res)),
@@ -1024,25 +1051,11 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 	now := time.Now().UTC()
 	threshold := now.AddDate(0, 0, days)
 
-	nowFt := timeToFiletime(now)
-	thrFt := timeToFiletime(threshold)
-
-	// Preferred: filter server-side on computed expiry.
-	filterWithComputed := fmt.Sprintf(
-		"(&(objectCategory=person)(objectClass=user)"+
-			"(!(userAccountControl:1.2.840.113556.1.4.803:=2))"+
-			"(!(userAccountControl:1.2.840.113556.1.4.803:=%d))"+
-			"(pwdLastSet>=1)"+
-			"(msDS-UserPasswordExpiryTimeComputed>=%d)"+
-			"(msDS-UserPasswordExpiryTimeComputed<=%d)"+
-			")",
-		uacDontExpirePassword,
-		nowFt,
-		thrFt,
-	)
-
-	// Fallback: do not use msDS-UserPasswordExpiryTimeComputed in the LDAP filter.
-	filterFallback := fmt.Sprintf(
+	// Do not put msDS-UserPasswordExpiryTimeComputed in the LDAP filter.
+	// It is a constructed attribute; some DCs reject it in a filter, and others
+	// can spend a long time evaluating it. Read it only after a cheap user filter
+	// has selected enabled users with expiring passwords enabled.
+	filter := fmt.Sprintf(
 		"(&(objectCategory=person)(objectClass=user)"+
 			"(!(userAccountControl:1.2.840.113556.1.4.803:=2))"+
 			"(!(userAccountControl:1.2.840.113556.1.4.803:=%d))"+
@@ -1089,6 +1102,9 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 		uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
 		uac, _ := strconv.Atoi(uacStr)
 		enabled := (uac & uacAccountDisable) == 0
+		if !enabled || (uac&uacDontExpirePassword) != 0 {
+			return nil
+		}
 
 		expStr := strings.TrimSpace(conn.getFirstStringValue(entry, "msDS-UserPasswordExpiryTimeComputed"))
 		if expStr == "" {
@@ -1128,26 +1144,8 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 		return nil
 	}
 
-	// Some directories reject server-side matching on the constructed attribute
-	// msDS-UserPasswordExpiryTimeComputed (LDAP_FILTER_ERROR=87 or
-	// LDAP_INAPPROPRIATE_MATCHING=18). Once we see that, stop attempting the
-	// computed filter and use the plain fallback (expiry window is evaluated
-	// client-side in processEntry) for all remaining bases. Dedup via the seen
-	// map makes re-processing on a same-base fallback safe.
-	useFallback := false
 	for _, baseDN := range bases {
-		if !useFallback {
-			err := conn.searchEach(baseDN, ldapScopeSubtree, filterWithComputed, attrs, processEntry)
-			if err == nil {
-				continue
-			}
-			le, ok := err.(ldapError)
-			if !ok || (le.code != ldapFilterError && le.code != ldapInappropriateMatching) {
-				return nil, err
-			}
-			useFallback = true
-		}
-		if err := conn.searchEach(baseDN, ldapScopeSubtree, filterFallback, attrs, processEntry); err != nil {
+		if err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, processEntry); err != nil {
 			return nil, err
 		}
 	}
@@ -1270,7 +1268,7 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 
 // ---- Inactive (stale) users logic (lastLogonTimestamp) ----
 
-func getInactiveUsers(days int, searchBases []string, server string) ([]inactiveUser, error) {
+func getInactiveUsers(days int, searchBases []string, server string, includeNeverLoggedOn bool) ([]inactiveUser, error) {
 	conn, err := ldapDial(server)
 	if err != nil {
 		return nil, err
@@ -1284,16 +1282,15 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 
 	now := time.Now().UTC()
 	cutoff := now.AddDate(0, 0, -days)
+	cutoffFt := timeToFiletime(cutoff)
+	cutoffGeneralized := cutoff.UTC().Format("20060102150405.0Z")
 
-	// Use the cheapest fully index-backed filter (equivalent to Get-ADUser
-	// -Filter *) and decide staleness client-side below. Filtering server-side
-	// on lastLogonTimestamp is a non-indexed scan in AD (and a negated presence
-	// filter cannot use an index at all), which makes the DC do a full
-	// evaluation pass and frequently exceed the Zabbix item timeout or AD's
-	// MaxQueryDuration. lastLogonTimestamp is returned as an attribute instead,
-	// which is cheap. Enabled/disabled and the inactivity cutoff are evaluated
-	// in Go from the returned attributes.
-	filter := "(&(objectCategory=person)(objectClass=user))"
+	// lastLogonTimestamp is indexed in modern AD schemas, so use it server-side
+	// for the normal stale-user path. The optional never-logged-on path still
+	// needs a separate query because missing attributes cannot use that index.
+	baseFilter := "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2))"
+	filterLastLogon := fmt.Sprintf("%s(lastLogonTimestamp<=%d))", baseFilter, cutoffFt)
+	filterNeverLoggedOn := fmt.Sprintf("%s(!(lastLogonTimestamp=*))(whenCreated<=%s))", baseFilter, cutoffGeneralized)
 
 	attrs := []string{
 		"sAMAccountName",
@@ -1307,103 +1304,101 @@ func getInactiveUsers(days int, searchBases []string, server string) ([]inactive
 	var out []inactiveUser
 	seen := make(map[string]struct{}, 256)
 
-	for _, baseDN := range bases {
-		err := conn.searchEach(baseDN, ldapScopeSubtree, filter, attrs, func(entry uintptr) error {
-			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
-			if sam == "" {
-				return nil
-			}
-
-			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
-			dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
-			if dn == "" {
-				dn = conn.getDN(entry)
-			}
-
-			key := strings.ToLower(strings.TrimSpace(dn))
-			if key == "" {
-				key = strings.ToLower(strings.TrimSpace(sam))
-			}
-			if key != "" {
-				if _, ok := seen[key]; ok {
-					return nil
-				}
-				seen[key] = struct{}{}
-			}
-
-			uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
-			uac, _ := strconv.Atoi(uacStr)
-			enabled := (uac & uacAccountDisable) == 0
-
-			// This item reports enabled stale accounts only; disabled accounts
-			// are covered by DisabledUsers. Skip disabled here (previously done
-			// by the server-side userAccountControl filter).
-			if !enabled {
-				return nil
-			}
-
-			whenCreatedStr := strings.TrimSpace(conn.getFirstStringValue(entry, "whenCreated"))
-			var whenCreatedTime *time.Time
-			var whenCreatedOut *string
-			if t, err := parseGeneralizedTime(whenCreatedStr); err == nil && t != nil {
-				tt := t.UTC()
-				whenCreatedTime = &tt
-				s := tt.Format(time.RFC3339Nano)
-				whenCreatedOut = &s
-			}
-
-			llStr := strings.TrimSpace(conn.getFirstStringValue(entry, "lastLogonTimestamp"))
-			var lastLogon *time.Time
-			if llStr != "" {
-				if ft, perr := strconv.ParseUint(llStr, 10, 64); perr == nil && ft > 0 && ft < adNeverExpiresInt8 {
-					t := filetimeToTime(ft)
-					lastLogon = &t
-				}
-			}
-
-			var lastLogonOut *string
-			var reference time.Time
-			neverLoggedOn := false
-
-			if lastLogon != nil {
-				// Defensive: server already filtered, but skip if not actually stale.
-				if lastLogon.After(cutoff) {
-					return nil
-				}
-				s := lastLogon.UTC().Format(time.RFC3339Nano)
-				lastLogonOut = &s
-				reference = *lastLogon
-			} else {
-				// Never logged on: measure inactivity from account creation.
-				neverLoggedOn = true
-				if whenCreatedTime == nil {
-					// No reference point to judge staleness; skip.
-					return nil
-				}
-				if whenCreatedTime.After(cutoff) {
-					// Recently created and never used yet; not stale.
-					return nil
-				}
-				reference = *whenCreatedTime
-			}
-
-			daysInactive := int(now.Sub(reference).Hours() / 24)
-
-			out = append(out, inactiveUser{
-				SamAccountName:     sam,
-				UserPrincipalName:  upn,
-				DistinguishedName:  dn,
-				Enabled:            enabled,
-				LastLogonUtc:       lastLogonOut,
-				DaysInactive:       &daysInactive,
-				NeverLoggedOn:      neverLoggedOn,
-				WhenCreatedUtc:     whenCreatedOut,
-				UserAccountControl: uac,
-			})
+	processEntry := func(entry uintptr) error {
+		sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
+		if sam == "" {
 			return nil
+		}
+
+		upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
+		dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
+		if dn == "" {
+			dn = conn.getDN(entry)
+		}
+
+		key := strings.ToLower(strings.TrimSpace(dn))
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(sam))
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				return nil
+			}
+			seen[key] = struct{}{}
+		}
+
+		uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
+		uac, _ := strconv.Atoi(uacStr)
+		enabled := (uac & uacAccountDisable) == 0
+		if !enabled {
+			return nil
+		}
+
+		whenCreatedStr := strings.TrimSpace(conn.getFirstStringValue(entry, "whenCreated"))
+		var whenCreatedTime *time.Time
+		var whenCreatedOut *string
+		if t, err := parseGeneralizedTime(whenCreatedStr); err == nil && t != nil {
+			tt := t.UTC()
+			whenCreatedTime = &tt
+			s := tt.Format(time.RFC3339Nano)
+			whenCreatedOut = &s
+		}
+
+		llStr := strings.TrimSpace(conn.getFirstStringValue(entry, "lastLogonTimestamp"))
+		var lastLogon *time.Time
+		if llStr != "" {
+			if ft, perr := strconv.ParseUint(llStr, 10, 64); perr == nil && ft > 0 && ft < adNeverExpiresInt8 {
+				t := filetimeToTime(ft)
+				lastLogon = &t
+			}
+		}
+
+		var lastLogonOut *string
+		var reference time.Time
+		neverLoggedOn := false
+
+		if lastLogon != nil {
+			if lastLogon.After(cutoff) {
+				return nil
+			}
+			s := lastLogon.UTC().Format(time.RFC3339Nano)
+			lastLogonOut = &s
+			reference = *lastLogon
+		} else {
+			neverLoggedOn = true
+			if whenCreatedTime == nil {
+				return nil
+			}
+			if whenCreatedTime.After(cutoff) {
+				return nil
+			}
+			reference = *whenCreatedTime
+		}
+
+		daysInactive := int(now.Sub(reference).Hours() / 24)
+
+		out = append(out, inactiveUser{
+			SamAccountName:     sam,
+			UserPrincipalName:  upn,
+			DistinguishedName:  dn,
+			Enabled:            enabled,
+			LastLogonUtc:       lastLogonOut,
+			DaysInactive:       &daysInactive,
+			NeverLoggedOn:      neverLoggedOn,
+			WhenCreatedUtc:     whenCreatedOut,
+			UserAccountControl: uac,
 		})
-		if err != nil {
+		return nil
+	}
+
+	for _, baseDN := range bases {
+		if err := conn.searchEach(baseDN, ldapScopeSubtree, filterLastLogon, attrs, processEntry); err != nil {
 			return nil, err
+		}
+		if includeNeverLoggedOn {
+			if err := conn.searchEach(baseDN, ldapScopeSubtree, filterNeverLoggedOn, attrs, processEntry); err != nil {
+				return nil, err
+			}
 		}
 	}
 
