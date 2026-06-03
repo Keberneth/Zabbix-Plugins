@@ -350,7 +350,10 @@ const (
 
 	ldapFilterError       = 87
 	ldapNoResultsReturned = 94
-	ldapDefaultPageSize   = 500
+	// AD's default MaxPageSize is 1000; using it halves the number of paged
+	// round-trips versus 500. If a DC policy caps it lower, AD simply returns
+	// fewer entries per page, so 1000 is a safe ceiling.
+	ldapDefaultPageSize = 1000
 )
 
 type ldapError struct {
