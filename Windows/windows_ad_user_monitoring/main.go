@@ -25,8 +25,8 @@ const (
 	keyDisabledUsers          = "DisabledUsers"          // existing Zabbix item key (must not change)
 	keyPasswordExpiringUsers  = "PasswordExpiringUsers"  // new Zabbix item key
 	keyUsersAboutToBeDisabled = "UsersAboutToBeDisabled" // new Zabbix item key
+	keyInactiveUsers          = "InactiveUsers"          // new Zabbix item key
 )
-
 
 // --- Data models (JSON) ---
 
@@ -71,6 +71,18 @@ type aboutToBeDisabledUser struct {
 	Enabled            bool    `json:"Enabled"`
 	AccountExpiresUtc  *string `json:"AccountExpiresUtc"`
 	DaysToDisable      *int    `json:"DaysToDisable"`
+	UserAccountControl int     `json:"UserAccountControl"`
+}
+
+type inactiveUser struct {
+	SamAccountName     string  `json:"sAMAccountName"`
+	UserPrincipalName  string  `json:"UserPrincipalName"`
+	DistinguishedName  string  `json:"DistinguishedName"`
+	Enabled            bool    `json:"Enabled"`
+	LastLogonUtc       *string `json:"LastLogonUtc"`
+	DaysInactive       *int    `json:"DaysInactive"`
+	NeverLoggedOn      bool    `json:"NeverLoggedOn"`
+	WhenCreatedUtc     *string `json:"WhenCreatedUtc"`
 	UserAccountControl int     `json:"UserAccountControl"`
 }
 
@@ -126,7 +138,6 @@ func parseSearchBases(raw string) []string {
 	}
 	return out
 }
-
 
 func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	switch key {
@@ -222,6 +233,30 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 		out, _ := jsonStringOrEmptyArray(p, keyUsersAboutToBeDisabled, users, err)
 		return out, nil
 
+	case keyInactiveUsers:
+		// Params:
+		// InactiveUsers[days,searchBases,server]
+		// days = how many days since last logon to consider a user inactive/stale
+		days := 30
+		searchBasesRaw := ""
+		server := ""
+
+		if len(params) >= 1 && strings.TrimSpace(params[0]) != "" {
+			if v, err := strconv.Atoi(strings.TrimSpace(params[0])); err == nil && v >= 0 {
+				days = v
+			}
+		}
+		if len(params) >= 2 {
+			searchBasesRaw = strings.TrimSpace(params[1])
+		}
+		if len(params) >= 3 {
+			server = strings.TrimSpace(params[2])
+		}
+		searchBases := parseSearchBases(searchBasesRaw)
+
+		users, err := getInactiveUsers(days, searchBases, server)
+		out, _ := jsonStringOrEmptyArray(p, keyInactiveUsers, users, err)
+		return out, nil
 
 	default:
 		return nil, plugin.UnsupportedMetricError
@@ -267,6 +302,9 @@ func runPlugin() error {
 		return err
 	}
 	if err := plugin.RegisterMetrics(&pluginImpl, pluginName, keyUsersAboutToBeDisabled, "Returns Active Directory users whose accounts will expire (accountExpires) within N days as JSON."); err != nil {
+		return err
+	}
+	if err := plugin.RegisterMetrics(&pluginImpl, pluginName, keyInactiveUsers, "Returns enabled Active Directory users whose last logon (lastLogonTimestamp) is older than N days as JSON."); err != nil {
 		return err
 	}
 
@@ -1087,6 +1125,147 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 				Enabled:            enabled,
 				AccountExpiresUtc:  &expiryStr,
 				DaysToDisable:      &daysToDisable,
+				UserAccountControl: uac,
+			})
+		}
+
+		_, _, _ = procLdapMsgFree.Call(res)
+	}
+
+	return out, nil
+}
+
+// ---- Inactive (stale) users logic (lastLogonTimestamp) ----
+
+func getInactiveUsers(days int, searchBases []string, server string) ([]inactiveUser, error) {
+	conn, err := ldapDial(server)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.close()
+
+	bases, err := resolveSearchBases(conn, searchBases)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	cutoff := now.AddDate(0, 0, -days)
+	cutoffFt := timeToFiletime(cutoff)
+
+	// Enabled users whose replicated last logon (lastLogonTimestamp) is older
+	// than the cutoff, OR who have never logged on (attribute not present).
+	// lastLogonTimestamp is the domain-replicated value (accurate to ~9-14 days),
+	// which is the correct attribute for detecting stale accounts across DCs.
+	filter := fmt.Sprintf(
+		"(&(objectCategory=person)(objectClass=user)"+
+			"(!(userAccountControl:1.2.840.113556.1.4.803:=2))"+
+			"(|(lastLogonTimestamp<=%d)(!(lastLogonTimestamp=*)))"+
+			")",
+		cutoffFt,
+	)
+
+	attrs := []string{
+		"sAMAccountName",
+		"userPrincipalName",
+		"distinguishedName",
+		"userAccountControl",
+		"lastLogonTimestamp",
+		"whenCreated",
+	}
+
+	var out []inactiveUser
+	seen := make(map[string]struct{}, 256)
+
+	for _, baseDN := range bases {
+		res, err := conn.search(baseDN, ldapScopeSubtree, filter, attrs)
+		if err != nil {
+			return nil, err
+		}
+
+		for entry, _, _ := procLdapFirstEntry.Call(conn.ld, res); entry != 0; entry, _, _ = procLdapNextEntry.Call(conn.ld, res, entry) {
+			sam := strings.TrimSpace(conn.getFirstStringValue(entry, "sAMAccountName"))
+			if sam == "" {
+				continue
+			}
+
+			upn := strings.TrimSpace(conn.getFirstStringValue(entry, "userPrincipalName"))
+			dn := strings.TrimSpace(conn.getFirstStringValue(entry, "distinguishedName"))
+			if dn == "" {
+				dn = conn.getDN(entry)
+			}
+
+			key := strings.ToLower(strings.TrimSpace(dn))
+			if key == "" {
+				key = strings.ToLower(strings.TrimSpace(sam))
+			}
+			if key != "" {
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				seen[key] = struct{}{}
+			}
+
+			uacStr := strings.TrimSpace(conn.getFirstStringValue(entry, "userAccountControl"))
+			uac, _ := strconv.Atoi(uacStr)
+			enabled := (uac & uacAccountDisable) == 0
+
+			whenCreatedStr := strings.TrimSpace(conn.getFirstStringValue(entry, "whenCreated"))
+			var whenCreatedTime *time.Time
+			var whenCreatedOut *string
+			if t, err := parseGeneralizedTime(whenCreatedStr); err == nil && t != nil {
+				tt := t.UTC()
+				whenCreatedTime = &tt
+				s := tt.Format(time.RFC3339Nano)
+				whenCreatedOut = &s
+			}
+
+			llStr := strings.TrimSpace(conn.getFirstStringValue(entry, "lastLogonTimestamp"))
+			var lastLogon *time.Time
+			if llStr != "" {
+				if ft, perr := strconv.ParseUint(llStr, 10, 64); perr == nil && ft > 0 && ft < adNeverExpiresInt8 {
+					t := filetimeToTime(ft)
+					lastLogon = &t
+				}
+			}
+
+			var lastLogonOut *string
+			var reference time.Time
+			neverLoggedOn := false
+
+			if lastLogon != nil {
+				// Defensive: server already filtered, but skip if not actually stale.
+				if lastLogon.After(cutoff) {
+					continue
+				}
+				s := lastLogon.UTC().Format(time.RFC3339Nano)
+				lastLogonOut = &s
+				reference = *lastLogon
+			} else {
+				// Never logged on: measure inactivity from account creation.
+				neverLoggedOn = true
+				if whenCreatedTime == nil {
+					// No reference point to judge staleness; skip.
+					continue
+				}
+				if whenCreatedTime.After(cutoff) {
+					// Recently created and never used yet; not stale.
+					continue
+				}
+				reference = *whenCreatedTime
+			}
+
+			daysInactive := int(now.Sub(reference).Hours() / 24)
+
+			out = append(out, inactiveUser{
+				SamAccountName:     sam,
+				UserPrincipalName:  upn,
+				DistinguishedName:  dn,
+				Enabled:            enabled,
+				LastLogonUtc:       lastLogonOut,
+				DaysInactive:       &daysInactive,
+				NeverLoggedOn:      neverLoggedOn,
+				WhenCreatedUtc:     whenCreatedOut,
 				UserAccountControl: uac,
 			})
 		}

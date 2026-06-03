@@ -15,6 +15,7 @@ zabbix_export:
         - Disabled users older than N days (trigger per disabled account)
         - Users with passwords expiring within N days (trigger per account)
         - Users with account expiration within N days (accountExpires) (trigger per account)
+        - Inactive users whose last logon (lastLogonTimestamp) is older than N days (trigger per account)
         
         OU scoping:
         - Set {$AD.SEARCH.BASES} to a base DN (OU/container) to limit searches.
@@ -29,7 +30,7 @@ zabbix_export:
           when the agent sends the master item value on schedule.
       vendor:
         name: Keberneth
-        version: 7.0-0-2
+        version: '7.0.0.4'
       groups:
         - name: Templates
       items:
@@ -66,6 +67,42 @@ zabbix_export:
           value_type: TEXT
           trends: '0'
           timeout: 90s
+        - uuid: 0d921e2164424f728b73c0f3265d4378
+          name: 'AD Inactive Users JSON'
+          type: ZABBIX_ACTIVE
+          key: 'InactiveUsers[{$AD.INACTIVE.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          delay: 24h
+          value_type: TEXT
+          trends: '0'
+          timeout: 600s
+        - uuid: d9fd90f336a74024a6eded4a64ba0560
+          name: 'AD Inactive Users Count'
+          type: DEPENDENT
+          key: InactiveUsersCount
+          delay: '0'
+          value_type: UNSIGNED
+          description: 'Number of enabled AD users whose last logon is older than {$AD.INACTIVE.OLDER.THAN.DAYS} days.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var text = (value || "").trim();
+                  if (!text) return 0;
+
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) { return 0; }
+
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+                  return arr.length;
+          master_item:
+            key: 'InactiveUsers[{$AD.INACTIVE.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          triggers:
+            - uuid: 40c897e6be464be0a358bc403f98aca8
+              expression: 'last(/AD DS User Monitoring Agent Active/InactiveUsersCount)>{$AD.INACTIVE.COUNT.WARN}'
+              name: 'More than {$AD.INACTIVE.COUNT.WARN} inactive AD users ({ITEM.LASTVALUE})'
+              priority: WARNING
+              description: 'The number of inactive (stale) AD users exceeds {$AD.INACTIVE.COUNT.WARN}.'
       discovery_rules:
         - uuid: 5b3b6a343d0f425b824ad0328846ca8d
           name: 'AD locked users'
@@ -335,6 +372,73 @@ zabbix_export:
                   }
                   
                   return JSON.stringify({ "data": data });
+        - uuid: 382e5c79fa204709ae821d0b8375c226
+          name: 'AD inactive users (last logon older than N days)'
+          type: DEPENDENT
+          key: UsersInactive
+          delay: '0'
+          item_prototypes:
+            - uuid: d9c7d1f877324e4b9b075d1ae1d985c9
+              name: 'AD User: [{#USER}] Inactive'
+              type: DEPENDENT
+              key: 'InactiveUsers[{#USER}]'
+              delay: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var text = (value || "").trim();
+                      if (!text) return 0;
+
+                      var arr;
+                      try { arr = JSON.parse(text); } catch (e) { return 0; }
+                      if (Object.prototype.toString.call(arr) !== "[object Array]") {
+                        arr = arr ? [arr] : [];
+                      }
+                      for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].sAMAccountName === "{#USER}") return 1;
+                      }
+                      return 0;
+              master_item:
+                key: 'InactiveUsers[{$AD.INACTIVE.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+              tags:
+                - tag: 'Customer Read'
+              trigger_prototypes:
+                - uuid: 509220a3f8654b9fb0b6a1d64a01e3d2
+                  expression: 'last(/AD DS User Monitoring Agent Active/InactiveUsers[{#USER}])=1'
+                  name: 'Account {#USER} inactive for {#DAYS_INACTIVE} days (last logon {#LASTLOGON})'
+                  priority: WARNING
+          master_item:
+            key: 'InactiveUsers[{$AD.INACTIVE.OLDER.THAN.DAYS},"{$AD.SEARCH.BASES}","{$AD.LDAP.SERVER}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var text = (value || "").trim();
+                  if (!text) {
+                    return JSON.stringify({ "data": [] });
+                  }
+
+                  var parsed;
+                  try { parsed = JSON.parse(text); } catch (e) {
+                    return JSON.stringify({ "data": [] });
+                  }
+
+                  var isArray = Object.prototype.toString.call(parsed) === "[object Array]";
+                  var arr = isArray ? parsed : (parsed ? [parsed] : []);
+
+                  var data = [];
+                  for (var i = 0; i < arr.length; i++) {
+                    var u = arr[i];
+                    data.push({
+                      "{#USER}": u.sAMAccountName,
+                      "{#UPN}": u.UserPrincipalName,
+                      "{#DN}": u.DistinguishedName,
+                      "{#LASTLOGON}": u.LastLogonUtc ? u.LastLogonUtc : "never",
+                      "{#DAYS_INACTIVE}": u.DaysInactive
+                    });
+                  }
+                  return JSON.stringify({ "data": data });
       macros:
         - macro: '{$AD.ACCOUNT.EXPIRES.IN.DAYS}'
           value: '7'
@@ -342,6 +446,12 @@ zabbix_export:
         - macro: '{$AD.DISABLED.OLDER.THAN.DAYS}'
           value: '30'
           description: 'Disabled user threshold (days). Used by DisabledUsers[days,...].'
+        - macro: '{$AD.INACTIVE.COUNT.WARN}'
+          value: '10'
+          description: 'Aggregate threshold. Warn when the number of inactive (stale) AD users exceeds this count.'
+        - macro: '{$AD.INACTIVE.OLDER.THAN.DAYS}'
+          value: '30'
+          description: 'Inactive (stale) user threshold (days). Warn when a user''s last logon (lastLogonTimestamp) is older than this. Used by InactiveUsers[days,...].'
         - macro: '{$AD.LDAP.SERVER}'
           description: |
             Optional: specify the domain controller to query (hostname/FQDN).

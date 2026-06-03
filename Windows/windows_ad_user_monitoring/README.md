@@ -10,6 +10,7 @@ The plugin and template cover these user conditions:
 - disabled users older than a defined number of days
 - users whose passwords expire within a defined number of days
 - users whose accounts expire within a defined number of days
+- inactive (stale) users whose last logon is older than a defined number of days
 
 The template uses active master items that return JSON, then dependent discovery rules, item prototypes, and trigger prototypes to create per-user monitoring and alerts.
 
@@ -89,6 +90,8 @@ Or use:
 |---|---:|---|
 | `{$AD.ACCOUNT.EXPIRES.IN.DAYS}` | `7` | Alert window for accounts that are about to expire |
 | `{$AD.DISABLED.OLDER.THAN.DAYS}` | `30` | Threshold for disabled users |
+| `{$AD.INACTIVE.OLDER.THAN.DAYS}` | `30` | Threshold (days) for inactive/stale users by last logon |
+| `{$AD.INACTIVE.COUNT.WARN}` | `10` | Aggregate trigger: warn when the inactive-user count exceeds this |
 | `{$AD.LDAP.SERVER}` | empty | Optional domain controller hostname or FQDN |
 | `{$AD.PASSWORD.EXPIRES.IN.DAYS}` | `7` | Alert window for passwords that are about to expire |
 | `{$AD.SEARCH.BASES}` | empty | Base DN scope for the search |
@@ -122,6 +125,7 @@ LockedOutUsers[searchBases,server]
 DisabledUsers[days,searchBases,server]
 PasswordExpiringUsers[days,searchBases,server]
 UsersAboutToBeDisabled[days,searchBases,server]
+InactiveUsers[days,searchBases,server]
 ```
 
 ## Notes
