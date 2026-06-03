@@ -30,7 +30,7 @@ zabbix_export:
           when the agent sends the master item value on schedule.
       vendor:
         name: Keberneth
-        version: 7.0-0-4
+        version: '7.0.0.5'
       groups:
         - name: Templates
       items:
