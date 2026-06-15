@@ -7,6 +7,8 @@ zabbix_export:
     - uuid: 03dcddf1b1614c19b5bb56702371fe63
       template: 'Windows Reboot Check Zabbix Agent Active'
       name: 'Windows Reboot Check Zabbix Agent Active'
+      description: |
+        Checks whether Windows has a pending reboot via a Zabbix Agent 2 plugin. Item key: system.needs_reboot. Returns 1 when a reboot is pending, 0 otherwise. Detection sources: Component Based Servicing (CBS) RebootPending, Windows Update Auto Update RebootRequired, Session Manager PendingFileRenameOperations (treated as pending only when non-empty), and the SCCM/ConfigMgr client (CCM_ClientUtilities.DetermineIfRebootPending) when available.
       vendor:
         name: Keberneth
         version: 7.0-0-0
@@ -18,6 +20,8 @@ zabbix_export:
           type: ZABBIX_ACTIVE
           key: system.needs_reboot
           delay: 60m
+          value_type: UNSIGNED
+          description: 'Returns 1 if Windows has a pending reboot, 0 otherwise.'
           triggers:
             - uuid: ce2aa9cbc4ce42bf860b1765bca0ba1f
               expression: 'last(/Windows Reboot Check Zabbix Agent Active/system.needs_reboot)=1'
@@ -25,3 +29,11 @@ zabbix_export:
               priority: AVERAGE
               tags:
                 - tag: 'Customer Read'
+            - uuid: c7b51ea4295d4918b46bbc3e9495a0d9
+              expression: 'nodata(/Windows Reboot Check Zabbix Agent Active/system.needs_reboot,{$REBOOT.NODATA})=1'
+              name: '{HOST.HOST} Reboot check has not received data'
+              priority: WARNING
+      macros:
+        - macro: '{$REBOOT.NODATA}'
+          value: 3h
+          description: 'No-data period after which the reboot check is considered stale'

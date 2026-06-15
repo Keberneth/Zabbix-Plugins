@@ -18,9 +18,19 @@ zabbix_export:
           type: ZABBIX_ACTIVE
           key: application.inventory
           delay: 6h
+          history: 10d
           value_type: TEXT
           trends: '0'
           timeout: 15s
           tags:
             - tag: application
               value: inventory
+          triggers:
+            - uuid: d1639a32621949de8376f92ee2c23559
+              expression: 'nodata(/Windows Application Inventory Zabbix Agent Active/application.inventory,{$APPINV.NODATA})=1'
+              name: 'No application inventory data received on {HOST.NAME}'
+              priority: WARNING
+      macros:
+        - macro: '{$APPINV.NODATA}'
+          value: 12h
+          description: 'Period without application inventory data before the nodata trigger fires.'

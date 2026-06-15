@@ -131,31 +131,57 @@ var (
 	procGetExtendedTcpTable = iphlpapi.NewProc("GetExtendedTcpTable")
 )
 
-func getTCPTableOwnerPIDAllIPv4() ([]mibTCPRowOwnerPID, error) {
-	var size uint32
-	// First call to get required buffer size
-	r1, _, _ := procGetExtendedTcpTable.Call(
-		0,
-		uintptr(unsafe.Pointer(&size)),
-		1, // bOrder = TRUE
-		afInet,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	// ERROR_INSUFFICIENT_BUFFER (122) expected
-	_ = r1
+const errorInsufficientBuffer = 122 // ERROR_INSUFFICIENT_BUFFER
 
-	buf := make([]byte, size)
-	r2, _, err := procGetExtendedTcpTable.Call(
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&size)),
-		1,
-		afInet,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	if r2 != 0 {
-		return nil, fmt.Errorf("GetExtendedTcpTable failed: %v (code=%d)", err, r2)
+func getTCPTableOwnerPIDAllIPv4() ([]mibTCPRowOwnerPID, error) {
+	var buf []byte
+	var ok bool
+	// The number of connections can change between the size-probing call and
+	// the fetch call (TOCTOU). Retry a few times if the buffer becomes too
+	// small in the meantime.
+	const maxAttempts = 5
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var size uint32
+		// First call to get required buffer size
+		r1, _, err := procGetExtendedTcpTable.Call(
+			0,
+			uintptr(unsafe.Pointer(&size)),
+			1, // bOrder = TRUE
+			afInet,
+			tcpTableOwnerPidAll,
+			0,
+		)
+		// Probing for the buffer size should return either success (0) or
+		// ERROR_INSUFFICIENT_BUFFER (122).
+		if r1 != 0 && r1 != errorInsufficientBuffer {
+			return nil, fmt.Errorf("GetExtendedTcpTable size probe failed: %v (code=%d)", err, r1)
+		}
+		if size == 0 {
+			return nil, fmt.Errorf("GetExtendedTcpTable returned zero buffer size")
+		}
+
+		buf = make([]byte, size)
+		r2, _, err := procGetExtendedTcpTable.Call(
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(unsafe.Pointer(&size)),
+			1,
+			afInet,
+			tcpTableOwnerPidAll,
+			0,
+		)
+		if r2 == errorInsufficientBuffer {
+			// Table grew between calls; retry with a fresh size.
+			continue
+		}
+		if r2 != 0 {
+			return nil, fmt.Errorf("GetExtendedTcpTable failed: %v (code=%d)", err, r2)
+		}
+		ok = true
+		break
+	}
+
+	if !ok {
+		return nil, fmt.Errorf("GetExtendedTcpTable failed: buffer kept growing after %d attempts (code=%d)", maxAttempts, errorInsufficientBuffer)
 	}
 
 	if len(buf) < 4 {

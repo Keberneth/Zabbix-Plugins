@@ -1,0 +1,182 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 840c5a85e43b42e2a1f4776d74ff07ac
+      template: 'Windows Time Synchronization by Zabbix agent 2 active'
+      name: 'Windows Time Synchronization by Zabbix agent 2 active'
+      description: |
+        Verifies that the local clock is correct by measuring the offset against a reference NTP
+        server, via the Go plugin "WindowsNTPSync" (item key windows.ntp.sync[server]).
+
+        The plugin returns JSON: success, ntp_server, local_ts, ntp_ts, diff_seconds (clock offset,
+        positive = local clock behind), stratum, rtt_ms, attempts, error. It performs up to 3
+        validated attempts (Kiss-of-Death and unsynchronised/stratum-0/16 responses are rejected).
+
+        Time drift: the "offset" item keeps trends for a year, so its graph IS the long-term drift of
+        this host's clock against the reference. Warning/critical thresholds are macros with sensible
+        defaults (well inside the 5-minute Kerberos tolerance) so problems are caught long before
+        authentication breaks.
+
+        Set {$NTP.SERVER} to the reference server. In an Active Directory domain this should be the
+        PDC Emulator; on the PDC Emulator itself, point it at the external source it synchronises with.
+
+        Install:
+          1. Copy zabbix-agent2-windows-ntpsync.exe to C:\Program Files\Zabbix Agent 2\
+          2. Add to C:\Program Files\Zabbix Agent 2\conf.d\:
+             Plugins.WindowsNTPSync.System.Path=C:\Program Files\Zabbix Agent 2\zabbix-agent2-windows-ntpsync.exe
+          3. Restart "Zabbix Agent 2".
+      vendor:
+        name: Iver
+        version: 7.0-0-2
+      groups:
+        - name: Templates
+      items:
+        - uuid: f016acf6a4d24992befd36f7e16cd980
+          name: 'Windows time synchronization status (raw)'
+          type: ZABBIX_ACTIVE
+          key: 'windows.ntp.sync[{$NTP.SERVER}]'
+          delay: '{$NTP.CHECK.INTERVAL}'
+          history: 1d
+          value_type: TEXT
+          trends: '0'
+          timeout: 10s
+          description: 'Master item: raw JSON from the NTP plugin for {$NTP.SERVER}.'
+          triggers:
+            - uuid: 1d4e9b2a7c3f48d0b6a1c2e3d4f5a6b7
+              expression: 'nodata(/Windows Time Synchronization by Zabbix agent 2 active/windows.ntp.sync[{$NTP.SERVER}],{$NTP.NODATA})=1'
+              name: 'Windows time synchronization is not being collected'
+              priority: WARNING
+              description: 'No NTP measurement has been received within {$NTP.NODATA}. Time monitoring is blind on this host (agent down, plugin missing, or item misconfigured).'
+        - uuid: 62630668256b413482ac5dccf5690ca6
+          name: 'Windows time offset'
+          type: DEPENDENT
+          key: windows.ntp.sync.server.diff.seconds
+          delay: '0'
+          history: 7d
+          trends: 365d
+          value_type: FLOAT
+          units: s
+          description: 'Clock offset against {$NTP.SERVER} (positive = local clock is behind). Its yearly trend shows long-term drift.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.diff_seconds
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'windows.ntp.sync[{$NTP.SERVER}]'
+          triggers:
+            - uuid: 4dd9095010be40548e8e23f62fdf7cae
+              expression: 'abs(last(/Windows Time Synchronization by Zabbix agent 2 active/windows.ntp.sync.server.diff.seconds))>{$NTP.OFFSET.WARN}'
+              name: 'Windows clock offset exceeds warning threshold (>{$NTP.OFFSET.WARN}s)'
+              priority: WARNING
+              description: 'The local clock differs from {$NTP.SERVER} by more than {$NTP.OFFSET.WARN} seconds.'
+              dependencies:
+                - name: 'Windows clock offset exceeds critical threshold (>{$NTP.OFFSET.CRIT}s)'
+                  expression: 'abs(last(/Windows Time Synchronization by Zabbix agent 2 active/windows.ntp.sync.server.diff.seconds))>{$NTP.OFFSET.CRIT}'
+            - uuid: 3254856bb57b4184a30d1e24f0c920af
+              expression: 'abs(last(/Windows Time Synchronization by Zabbix agent 2 active/windows.ntp.sync.server.diff.seconds))>{$NTP.OFFSET.CRIT}'
+              name: 'Windows clock offset exceeds critical threshold (>{$NTP.OFFSET.CRIT}s)'
+              priority: HIGH
+              description: 'The local clock differs from {$NTP.SERVER} by more than {$NTP.OFFSET.CRIT} seconds. Large offsets break Kerberos/AD authentication once they reach 5 minutes.'
+        - uuid: b278afdb362b4a78bc85f3dc2a7a1df2
+          name: 'Windows time synchronization succeeded'
+          type: DEPENDENT
+          key: windows.ntp.sync.success
+          delay: '0'
+          history: 7d
+          value_type: UNSIGNED
+          description: '1 if the last NTP query succeeded and was validated, 0 otherwise.'
+          valuemap:
+            name: 'NTP success'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.success
+            - type: JAVASCRIPT
+              parameters:
+                - 'return (String(value).toLowerCase() === ''true'' || value == 1) ? 1 : 0;'
+          master_item:
+            key: 'windows.ntp.sync[{$NTP.SERVER}]'
+          triggers:
+            - uuid: 2969d951e606406b9be52870dd93cc77
+              expression: 'last(/Windows Time Synchronization by Zabbix agent 2 active/windows.ntp.sync.success)=0'
+              name: 'Windows time synchronization query failed'
+              priority: AVERAGE
+              description: 'The NTP query to {$NTP.SERVER} failed or returned an unsynchronised/invalid response on the last 3 attempts. The clock offset cannot be verified.'
+        - uuid: 7e1f2a3b4c5d6e7f8091a2b3c4d5e6f7
+          name: 'Windows NTP server stratum'
+          type: DEPENDENT
+          key: windows.ntp.sync.stratum
+          delay: '0'
+          history: 7d
+          value_type: UNSIGNED
+          description: 'Stratum of {$NTP.SERVER} (1 = primary reference; lower is closer to an authoritative source). Only present when the query succeeds.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.stratum
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'windows.ntp.sync[{$NTP.SERVER}]'
+        - uuid: 8f2a3b4c5d6e7f8091a2b3c4d5e6f701
+          name: 'Windows NTP round-trip time'
+          type: DEPENDENT
+          key: windows.ntp.sync.rtt
+          delay: '0'
+          history: 7d
+          value_type: FLOAT
+          units: ms
+          description: 'Network round-trip time of the NTP query to {$NTP.SERVER}. High RTT reduces offset accuracy.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.rtt_ms
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'windows.ntp.sync[{$NTP.SERVER}]'
+        - uuid: 49f78349ecfe4d1f8d8a2bc8fb4464a5
+          name: 'Windows NTP server used'
+          type: DEPENDENT
+          key: windows.ntp.sync.server
+          delay: '0'
+          history: 1d
+          value_type: TEXT
+          trends: '0'
+          description: 'The NTP server the offset was measured against.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.ntp_server
+              error_handler: DISCARD_VALUE
+          master_item:
+            key: 'windows.ntp.sync[{$NTP.SERVER}]'
+      tags:
+        - tag: target
+          value: time
+      macros:
+        - macro: '{$NTP.CHECK.INTERVAL}'
+          value: 2m
+          description: 'How often the clock offset is measured.'
+        - macro: '{$NTP.NODATA}'
+          value: 10m
+          description: 'Raise a warning if no NTP measurement is received within this window.'
+        - macro: '{$NTP.OFFSET.CRIT}'
+          value: '2'
+          description: 'Critical clock offset in seconds. Recommended 2s (well inside the 5-minute Kerberos tolerance; tighten for latency-sensitive workloads).'
+        - macro: '{$NTP.OFFSET.WARN}'
+          value: '0.5'
+          description: 'Warning clock offset in seconds. Recommended 0.5s for catching drift early; raise to ~1s if querying a public pool over the WAN.'
+        - macro: '{$NTP.SERVER}'
+          value: pool.ntp.org
+          description: 'Reference NTP server/pool. In an AD domain set this to the PDC Emulator.'
+      valuemaps:
+        - uuid: a1b2c3d4e5f60718293a4b5c6d7e8f90
+          name: 'NTP success'
+          mappings:
+            - value: '0'
+              newvalue: Failed
+            - value: '1'
+              newvalue: Success

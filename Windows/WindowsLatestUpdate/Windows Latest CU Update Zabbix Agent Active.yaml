@@ -24,6 +24,11 @@ zabbix_export:
               expression: 'last(/Windows Latest CU Update Zabbix Agent Active/wlu.update.installed)<>0'
               name: 'Current month CU missing on {HOST.NAME}'
               priority: INFO
+            - uuid: c7f0a1b2d3e4456778899aabbccddeef
+              expression: 'nodata(/Windows Latest CU Update Zabbix Agent Active/wlu.update.installed,{$WLU.NODATA})=1'
+              name: 'Windows update status is not being collected on {HOST.NAME}'
+              priority: WARNING
+              description: 'No Windows Update status received within {$WLU.NODATA}; the patch-compliance check is blind on this host.'
         - uuid: 82bd1050ef40405cb3ac013a0cb29b72
           name: 'Windows Previous Month CU Installed'
           type: ZABBIX_ACTIVE
@@ -42,3 +47,7 @@ zabbix_export:
           history: 10d
           value_type: TEXT
           trends: '0'
+      macros:
+        - macro: '{$WLU.NODATA}'
+          value: 3d
+          description: 'Raise a warning if no Windows Update status has been received within this window (item delay is 1d).'

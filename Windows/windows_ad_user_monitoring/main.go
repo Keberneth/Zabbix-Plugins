@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -1006,7 +1007,7 @@ func getDisabledUsers(days int, searchBases []string, server string) ([]disabled
 			}
 
 			disabledSinceStr := disabledSince.UTC().Format(time.RFC3339Nano)
-			daysDisabled := int(now.Sub(*disabledSince).Hours() / 24)
+			daysDisabled := int(math.Round(now.Sub(*disabledSince).Hours() / 24))
 
 			out = append(out, disabledUser{
 				SamAccountName:     sam,
@@ -1130,7 +1131,7 @@ func getPasswordExpiringUsers(days int, searchBases []string, server string) ([]
 		}
 
 		expiryStr := expiry.UTC().Format(time.RFC3339Nano)
-		daysToExpire := int(expiry.Sub(now).Hours() / 24)
+		daysToExpire := int(math.Round(expiry.Sub(now).Hours() / 24))
 
 		out = append(out, passwordExpiringUser{
 			SamAccountName:     sam,
@@ -1245,7 +1246,7 @@ func getUsersAboutToBeDisabled(days int, searchBases []string, server string) ([
 			}
 
 			expiryStr := expiry.UTC().Format(time.RFC3339Nano)
-			daysToDisable := int(expiry.Sub(now).Hours() / 24)
+			daysToDisable := int(math.Round(expiry.Sub(now).Hours() / 24))
 
 			out = append(out, aboutToBeDisabledUser{
 				SamAccountName:     sam,
@@ -1375,7 +1376,7 @@ func getInactiveUsers(days int, searchBases []string, server string, includeNeve
 			reference = *whenCreatedTime
 		}
 
-		daysInactive := int(now.Sub(reference).Hours() / 24)
+		daysInactive := int(math.Round(now.Sub(reference).Hours() / 24))
 
 		out = append(out, inactiveUser{
 			SamAccountName:     sam,

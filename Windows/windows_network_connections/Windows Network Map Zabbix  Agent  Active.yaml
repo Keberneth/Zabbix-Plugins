@@ -24,3 +24,12 @@ zabbix_export:
           value_type: TEXT
           trends: '0'
           timeout: 10s
+          triggers:
+            - uuid: 249040e096e043489f47b72df96ecc69
+              expression: 'nodata(/Windows Network Map Zabbix  Agent  Active/windows-network-connections,{$WINNET.NODATA})=1'
+              name: '{HOST.HOST} Windows network connections: no data from agent'
+              priority: WARNING
+      macros:
+        - macro: '{$WINNET.NODATA}'
+          value: 15m
+          description: 'Raise a problem if no windows-network-connections data is received inside this window.'

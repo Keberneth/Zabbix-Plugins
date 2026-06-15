@@ -1,8 +1,6 @@
 zabbix_export:
   version: '7.0'
   template_groups:
-    - uuid: 9f32c6e8e1fa4fcbbbd3a506935f3e09
-      name: 'Templates'
     - uuid: 7df96b18c230490a9a0a9e2307226338
       name: Templates
   templates:
@@ -17,7 +15,17 @@ zabbix_export:
       items:
         - uuid: 2b14d5020c664456aae0b34e56dea7af
           name: linux-network-connections
+          type: ZABBIX_ACTIVE
           key: linux-network-connections
           delay: 5m
           value_type: TEXT
           trends: '0'
+          triggers:
+            - uuid: 7c1e3a94b5d2406f8a6f0d21e9c4b8a1
+              expression: 'nodata(/Linux Network Map Zabbix Agent Active/linux-network-connections,{$LNC.NODATA})=1'
+              name: '{HOST.HOST} Network Map has no data'
+              priority: WARNING
+      macros:
+        - macro: '{$LNC.NODATA}'
+          value: 15m
+          description: 'Staleness window for the network connections item before the no-data trigger fires'

@@ -158,7 +158,9 @@ var uninstallRoots = []uninstallRoot{
 }
 
 func collectInstalledApps() ([]AppEntry, []error) {
-	var all []AppEntry
+	// Initialize as a non-nil slice so JSON encoding emits an empty array "[]"
+	// (not "null") when no applications are found / all roots fail.
+	all := make([]AppEntry, 0)
 	var warns []error
 
 	for _, r := range uninstallRoots {
@@ -274,9 +276,6 @@ func marshalPowerShellJSON(apps []AppEntry) (string, error) {
 	if len(b) > 0 && b[len(b)-1] == '\n' {
 		b = b[:len(b)-1]
 	}
-
-	// PowerShell ConvertTo-Json uses two spaces after ':' (":  ")
-	b = bytes.ReplaceAll(b, []byte("\": "), []byte("\":  "))
 
 	// PowerShell uses CRLF on Windows.
 	b = bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))

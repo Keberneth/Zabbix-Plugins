@@ -1,0 +1,20 @@
+# Compiled Go plugin binaries — GitHub Actions builds and publishes these on push.
+# Never commit binaries.
+
+# Windows plugin binaries
+*.exe
+
+# Linux plugin binaries are extensionless and named zabbix-agent2-<plugin>.
+# Ignore those, but keep the .conf files that sit next to them.
+**/zabbix-agent2-*
+!**/zabbix-agent2-*.conf
+
+# Local build / self-test scratch
+test_build
+test_*.exe
+out.bin
+
+# Go workspace / editor cruft
+go.work
+go.work.sum
+.DS_Store

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -322,10 +323,41 @@ func registryValueNonEmptyOrUnreadable(root registry.Key, path, valueName string
 //   ROOT\\CCM\\ClientSDK : CCM_ClientUtilities.DetermineIfRebootPending()
 // Returns (false, error) if SCCM client/WMI is not available.
 func sccmRebootPending() (bool, error) {
-	if err := ole.CoInitialize(0); err != nil {
-		return false, err
+	// COM apartment state is per-OS-thread. The Zabbix SDK may call Export()
+	// on pooled goroutines that can migrate OS threads, so pin this goroutine
+	// to its current OS thread for the duration of all COM calls. Otherwise a
+	// subsequent COM call could run on a thread where COM was never initialized
+	// (CO_E_NOTINITIALIZED / RPC errors).
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	// go-ole returns a non-nil error for benign HRESULTs:
+	//   S_FALSE (0x00000001)            - COM already initialized on this thread
+	//   RPC_E_CHANGED_MODE (0x80010106) - already initialized with a different
+	//                                     apartment model; existing init stands
+	// Treat both as success and continue. Only balance with CoUninitialize when
+	// THIS call actually performed the initialization (err == nil).
+	const (
+		sFalse          = uintptr(0x00000001)
+		rpcEChangedMode = uintptr(0x80010106)
+	)
+	initErr := ole.CoInitialize(0)
+	performedInit := initErr == nil
+	if initErr != nil {
+		var oleErr *ole.OleError
+		if errors.As(initErr, &oleErr) {
+			code := oleErr.Code()
+			if code != sFalse && code != rpcEChangedMode {
+				return false, initErr
+			}
+			// benign: COM already usable on this thread, continue.
+		} else {
+			return false, initErr
+		}
 	}
-	defer ole.CoUninitialize()
+	if performedInit {
+		defer ole.CoUninitialize()
+	}
 
 	locObj, err := oleutil.CreateObject("WbemScripting.SWbemLocator")
 	if err != nil {
@@ -345,6 +377,9 @@ func sccmRebootPending() (bool, error) {
 		return false, err
 	}
 	svc := svcRaw.ToIDispatch()
+	if svc == nil {
+		return false, errors.New("ConnectServer did not return an IDispatch")
+	}
 	defer svc.Release()
 
 	// ExecMethod_ on the class (static method).
@@ -353,6 +388,9 @@ func sccmRebootPending() (bool, error) {
 		return false, err
 	}
 	res := resRaw.ToIDispatch()
+	if res == nil {
+		return false, errors.New("ExecMethod_ did not return an IDispatch")
+	}
 	defer res.Release()
 
 	// Prefer RebootPending; if missing/false, also check IsHardRebootPending when available.

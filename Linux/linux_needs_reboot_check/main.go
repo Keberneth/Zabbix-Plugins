@@ -91,11 +91,13 @@ func runPlugin() error {
 
 func runStandalone(verbose bool) string {
 	pending, reasons, err := isRebootPendingDetailed()
-	if err != nil {
-		// Best-effort: if we cannot determine, return 0.
-		if verbose {
-			fmt.Fprintln(os.Stderr, "needs_reboot_check: error:", err)
-		}
+	if err != nil && verbose {
+		// Secondary-check errors are non-fatal and must never override a confirmed
+		// pending=true; just surface them.
+		fmt.Fprintln(os.Stderr, "needs_reboot_check: non-fatal check error:", err)
+	}
+	if err != nil && !pending {
+		// We could not confirm a reboot and at least one check errored: best-effort 0.
 		return "0"
 	}
 
@@ -122,12 +124,10 @@ func (p *NeedsRebootCheckPlugin) Export(key string, _ []string, _ plugin.Context
 	}
 
 	pending, reasons, err := isRebootPendingDetailed()
-	if err != nil {
-		// Best-effort.
-		if p.Logger != nil {
-			p.Infof("%s: reboot pending check error: %v", pluginName, err)
-		}
-		return "0", nil
+	if err != nil && p.Logger != nil {
+		// Secondary-check errors are non-fatal and must never override a confirmed
+		// pending=true; just log them.
+		p.Infof("%s: non-fatal reboot check error: %v", pluginName, err)
 	}
 
 	if pending {
@@ -142,8 +142,15 @@ func (p *NeedsRebootCheckPlugin) Export(key string, _ []string, _ plugin.Context
 
 // isRebootPendingDetailed checks common "reboot required" signals across major distros.
 // Returns pending=true if any signal indicates a reboot is recommended.
+//
+// Error handling: once an authoritative check has set pending=true, errors from
+// later secondary checks must never flip the result back to "0". Non-fatal errors
+// from secondary commands are accumulated and returned (joined) so callers can log
+// them, but callers must treat a confirmed pending=true as authoritative regardless
+// of whether err is non-nil.
 func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 	reasons = make([]string, 0, 4)
+	var errsList []error
 
 	// Debian / Ubuntu: /run/reboot-required or /var/run/reboot-required exists.
 	if fileExists("/run/reboot-required") || fileExists("/var/run/reboot-required") {
@@ -155,10 +162,11 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 	if path, ok := lookPath("needs-restarting"); ok {
 		code, _, _, runErr := runExitCode(path, "-r")
 		if runErr != nil {
-			// Non-exit errors are real problems (should be rare since we already looked up the path).
-			return pending, reasons, runErr
-		}
-		if code == 1 {
+			// Non-exit errors are real problems (should be rare since we already
+			// looked up the path), but they must not discard an already-confirmed
+			// pending=true result.
+			errsList = append(errsList, errs.Wrap(runErr, "needs-restarting -r failed"))
+		} else if code == 1 {
 			pending = true
 			reasons = append(reasons, "needs-restarting:-r")
 		}
@@ -173,9 +181,8 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 		zypperRan = true
 		code, _, stderr, runErr := runExitCode(path, "--quiet", "needs-rebooting")
 		if runErr != nil {
-			return pending, reasons, runErr
-		}
-		if code == 102 {
+			errsList = append(errsList, errs.Wrap(runErr, "zypper needs-rebooting failed"))
+		} else if code == 102 {
 			pending = true
 			reasons = append(reasons, "zypper:needs-rebooting")
 			zypperOK = true
@@ -192,9 +199,8 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 		if path, ok := lookPath("needs-restarting"); ok {
 			code, _, _, runErr := runExitCode(path, "-r")
 			if runErr != nil {
-				return pending, reasons, runErr
-			}
-			if code == 1 {
+				errsList = append(errsList, errs.Wrap(runErr, "needs-restarting -r (fallback) failed"))
+			} else if code == 1 {
 				pending = true
 				reasons = append(reasons, "needs-restarting:-r(fallback)")
 			}
@@ -203,22 +209,155 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 
 	// Universal kernel mismatch fallback (RPM-based only):
 	// Compare running kernel (uname -r) with latest installed kernel-core package.
-	// This is used only if nothing else already indicated reboot.
+	// This is used only if nothing else already indicated reboot, and only flags a
+	// reboot when the newest installed kernel is STRICTLY NEWER than the running one.
 	if !pending {
 		running, e := cmdOutputTrim("uname", "-r")
 		if e == nil && running != "" {
 			latest, e2 := latestKernelCoreRPM()
 			if e2 != nil {
-				return pending, reasons, e2
-			}
-			if latest != "" && running != latest {
+				errsList = append(errsList, errs.Wrap(e2, "latest kernel-core query failed"))
+			} else if latest != "" && kernelNewer(running, latest) {
 				pending = true
-				reasons = append(reasons, fmt.Sprintf("kernel:mismatch(running=%s, latest=%s)", running, latest))
+				reasons = append(reasons, fmt.Sprintf("kernel:newer-installed(running=%s, latest=%s)", running, latest))
 			}
 		}
 	}
 
-	return pending, reasons, nil
+	if len(errsList) > 0 {
+		err = errors.Join(errsList...)
+	}
+	return pending, reasons, err
+}
+
+// kernelNewer reports whether the latest installed kernel string is strictly newer
+// than the running kernel string. uname -r and rpm %{VERSION}-%{RELEASE}.%{ARCH}
+// are not byte-identical even when they refer to the same kernel (e.g. uname yields
+// "5.14.0-503.el9.x86_64" while rpm yields "5.14.0-503.el9.x86_64" only after the
+// arch suffix is appended), so a plain string inequality is unsafe. We compare with
+// a real version comparison and only return true when latest > running.
+func kernelNewer(running, latest string) bool {
+	return compareVersions(latest, running) > 0
+}
+
+// compareVersions compares two version strings segment by segment.
+// It splits each version on non-alphanumeric separators (".", "-", "_", "+") and
+// further into runs of digits and runs of non-digits. Numeric runs are compared as
+// integers; non-numeric runs are compared lexically. Returns:
+//
+//	-1 if a < b, 0 if a == b, +1 if a > b.
+//
+// Missing trailing segments are treated as the empty/zero segment, so "5.14" == "5.14.0".
+func compareVersions(a, b string) int {
+	ta := tokenizeVersion(a)
+	tb := tokenizeVersion(b)
+
+	n := len(ta)
+	if len(tb) > n {
+		n = len(tb)
+	}
+
+	for i := 0; i < n; i++ {
+		var sa, sb string
+		if i < len(ta) {
+			sa = ta[i]
+		}
+		if i < len(tb) {
+			sb = tb[i]
+		}
+		if sa == sb {
+			continue
+		}
+
+		aNum, aIsNum := parseUintToken(sa)
+		bNum, bIsNum := parseUintToken(sb)
+
+		// Treat a missing (absent) segment as numeric zero so that trailing-zero
+		// variants compare equal, e.g. "5.14" == "5.14.0".
+		if sa == "" {
+			aNum, aIsNum = 0, true
+		}
+		if sb == "" {
+			bNum, bIsNum = 0, true
+		}
+
+		switch {
+		case aIsNum && bIsNum:
+			if aNum != bNum {
+				if aNum < bNum {
+					return -1
+				}
+				return 1
+			}
+		case aIsNum && !bIsNum:
+			// Numeric segment outranks an alphabetic/pre-release one
+			// (e.g. "1.0" > "1.0a").
+			return 1
+		case !aIsNum && bIsNum:
+			return -1
+		default: // both non-numeric, unequal
+			if sa < sb {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+// tokenizeVersion splits a version string into alternating numeric / non-numeric
+// tokens, using ".", "-", "_", "+" (and any other non-alphanumeric rune) as
+// separators that are dropped.
+func tokenizeVersion(v string) []string {
+	tokens := make([]string, 0, 8)
+	var cur strings.Builder
+	curIsDigit := false
+
+	flush := func() {
+		if cur.Len() > 0 {
+			tokens = append(tokens, cur.String())
+			cur.Reset()
+		}
+	}
+
+	for _, r := range v {
+		isDigit := r >= '0' && r <= '9'
+		isAlpha := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+
+		switch {
+		case !isDigit && !isAlpha:
+			// separator
+			flush()
+			curIsDigit = false
+		case cur.Len() == 0:
+			cur.WriteRune(r)
+			curIsDigit = isDigit
+		case isDigit == curIsDigit:
+			cur.WriteRune(r)
+		default:
+			// transition between digit and alpha within a segment
+			flush()
+			cur.WriteRune(r)
+			curIsDigit = isDigit
+		}
+	}
+	flush()
+	return tokens
+}
+
+// parseUintToken returns the integer value of an all-digit token.
+func parseUintToken(s string) (uint64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	var n uint64
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + uint64(r-'0')
+	}
+	return n, true
 }
 
 func fileExists(path string) bool {

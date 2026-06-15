@@ -56,12 +56,16 @@ jobs:
           add_plugin "Windows/windows_failover_cluster"       "windows" "zabbix-agent2-windows-failover-cluster.exe"
           add_plugin "Windows/windows_needs_reboot_check"     "windows" "zabbix-agent2-needs-reboot-check.exe"
           add_plugin "Windows/windows_network_connections"    "windows" "zabbix-agent2-windows-network-connections.exe"
+          add_plugin "Windows/windows_ntp_sync"               "windows" "zabbix-agent2-windows-ntpsync.exe"
+          add_plugin "Windows/windows_recurring_event_Error"  "windows" "zabbix-agent2-windows-recurring-event.exe"
           add_plugin "Windows/windows_service_listening_port" "windows" "zabbix-agent2-windows-service-listening-port.exe"
-          add_plugin "Windows/WindowsLatestUpdate"            "windows" "zabbix-agent2-WindowsLatestUpdate.exe"
+          add_plugin "Windows/WindowsLatestUpdate"            "windows" "zabbix-agent2-windows-latest-update.exe"
 
           # Linux plugins
+          add_plugin "Linux/linux_btg_account_check"          "linux"   "zabbix-agent2-linux-btg-account-check"
           add_plugin "Linux/linux_needs_reboot_check"         "linux"   "zabbix-agent2-needs-reboot-check"
           add_plugin "Linux/linux_network_connections"        "linux"   "zabbix-agent2-linux-network-connections"
+          add_plugin "Linux/linux_ntp_sync"                   "linux"   "zabbix-agent2-linux-ntp-sync"
           add_plugin "Linux/linux_service_listening_port"     "linux"   "zabbix-agent2-linux-service-listening-port"
 
           if [ "$PLUGINS" = "[]" ]; then

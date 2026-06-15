@@ -20,7 +20,7 @@ import (
 
 const (
 	pluginName           = "WindowsLatestUpdate"
-	pluginVersion        = "1.1.0"
+	pluginVersion        = "1.2.0"
 	metricStatusJSON     = "wlu.update.status"
 	metricInstalled      = "wlu.update.installed"
 	metricStatusJSONPrev = "wlu.update.status.previous"
@@ -206,6 +206,12 @@ func maybeRunStandalone(args []string) (int, bool) {
 		return 1, true
 	}
 
+	payload, err = applyReleaseSuppression(payload, month, time.Now())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1, true
+	}
+
 	if verbose {
 		var normalized any
 		if err := json.Unmarshal([]byte(payload), &normalized); err == nil {
@@ -255,6 +261,8 @@ func run() error {
 }
 
 func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider) (any, error) {
+	now := time.Now()
+
 	var month string
 
 	switch key {
@@ -268,12 +276,17 @@ func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider
 		if len(params) > 0 && strings.TrimSpace(params[0]) != "" {
 			return nil, errs.Errorf("item key %q does not accept parameters", key)
 		}
-		month = previousMonth(time.Now())
+		month = previousMonth(now)
 	default:
 		return nil, errs.Errorf("unknown item key %q", key)
 	}
 
 	payload, err := p.collect(month)
+	if err != nil {
+		return nil, err
+	}
+
+	payload, err = applyReleaseSuppression(payload, month, now)
 	if err != nil {
 		return nil, err
 	}
@@ -292,6 +305,121 @@ func previousMonth(now time.Time) string {
 	year, month, _ := now.Date()
 	prev := time.Date(year, month-1, 1, 0, 0, 0, 0, now.Location())
 	return prev.Format("2006-01")
+}
+
+// secondTuesday returns midnight at the start of the second Tuesday (Patch
+// Tuesday) of the given month, in loc. Microsoft publishes the monthly
+// cumulative update on this day, so a host cannot be expected to have it before
+// then.
+func secondTuesday(year int, month time.Month, loc *time.Location) time.Time {
+	first := time.Date(year, month, 1, 0, 0, 0, 0, loc)
+	offsetToFirstTuesday := (int(time.Tuesday) - int(first.Weekday()) + 7) % 7
+	firstTuesday := first.AddDate(0, 0, offsetToFirstTuesday)
+	return firstTuesday.AddDate(0, 0, 7)
+}
+
+// applyReleaseSuppression rewrites the collected payload so the current month's
+// CU is not reported as missing before its Patch Tuesday (the second Tuesday of
+// the month being checked). Microsoft has not released the update yet, so a
+// "missing" verdict would be a false positive from the 1st until Patch Tuesday.
+//
+// The factual detection from the collector is preserved in RawInstalled, and
+// the decision is made transparent via PatchTuesday, ReleaseDue and Suppressed.
+// When the release is due (now on/after Patch Tuesday) the payload is left
+// untouched apart from the added diagnostic fields, so the previous month and
+// any explicit past-month checks are never affected.
+//
+// The month reasoned about is taken from the payload's MonthChecked, which was
+// produced by the same clock read that gathered the data. This avoids a skew at
+// the month boundary where a Go-side now and the collector's PowerShell clock
+// could land in different months. A collector error payload (Source=="Error")
+// is never suppressed, so a genuinely broken Windows Update check keeps
+// reporting missing instead of being masked as installed.
+func applyReleaseSuppression(payload, targetMonth string, now time.Time) (string, error) {
+	var data map[string]any
+	if err := json.Unmarshal([]byte(payload), &data); err != nil {
+		return "", errs.Wrap(err, "failed to parse payload for release suppression")
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+
+	year, month, ok := monthFromString(payloadString(data["MonthChecked"]), now.Location())
+	if !ok {
+		year, month, ok = monthFromString(targetMonth, now.Location())
+	}
+	if !ok {
+		year, month = now.Year(), now.Month()
+	}
+
+	patchTuesday := secondTuesday(year, month, now.Location())
+	releaseDue := !now.Before(patchTuesday)
+
+	rawInstalled, ok := payloadInt(data["Installed"])
+	if !ok {
+		return "", errs.Errorf("payload missing numeric Installed field for release suppression")
+	}
+
+	collectorError := payloadString(data["Source"]) == "Error"
+
+	data["RawInstalled"] = rawInstalled
+	data["PatchTuesday"] = patchTuesday.Format("2006-01-02")
+	data["ReleaseDue"] = releaseDue
+
+	suppressed := false
+	if !releaseDue && rawInstalled != 0 && !collectorError {
+		data["Installed"] = 0
+		suppressed = true
+	}
+	data["Suppressed"] = suppressed
+
+	normalized, err := json.Marshal(data)
+	if err != nil {
+		return "", errs.Wrap(err, "failed to marshal payload after release suppression")
+	}
+
+	return string(normalized), nil
+}
+
+// monthFromString parses a yyyy-MM string into a year and month in loc. The
+// bool is false when the string is empty or malformed.
+func monthFromString(s string, loc *time.Location) (int, time.Month, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, 0, false
+	}
+
+	parsed, err := time.ParseInLocation("2006-01", s, loc)
+	if err != nil {
+		return 0, 0, false
+	}
+
+	return parsed.Year(), parsed.Month(), true
+}
+
+// payloadString returns v as a string, or "" if it is not a string.
+func payloadString(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+// payloadInt coerces a JSON-decoded value into an int. Numbers decoded from
+// JSON arrive as float64, but int/json.Number are handled for safety.
+func payloadInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(i), true
+	default:
+		return 0, false
+	}
 }
 
 func parseMonthParam(params []string) (string, error) {

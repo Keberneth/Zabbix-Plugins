@@ -1,0 +1,82 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: 6c1d9a7e4b2f43c8a9e0d1c2b3a4f5e6
+      template: 'Linux BTG Account Check by Zabbix agent 2 active'
+      name: 'Linux BTG Account Check by Zabbix agent 2 active'
+      description: |
+        Detects authentication by emergency / break-the-glass (BTG) accounts in a Linux auth log,
+        via the Go plugin "BTGAccountCheck" (item key btg.account.check.log).
+
+        The plugin tails the log incrementally (checkpointed per file, rotation-aware) and reports
+        each new authentication by one of the monitored accounts. It returns one of:
+          "OK: no BTG accounts detected"
+          "btg account '<name>' seen in <logfile>: <line>"
+          "ERROR: <reason>"
+
+        Set {$BTG.ACCOUNTS} to your break-glass account names (comma-separated) and {$BTG.LOGFILE}
+        to the auth log (/var/log/secure on RHEL/SUSE, /var/log/auth.log on Debian/Ubuntu).
+
+        Install:
+          1. Copy the binary to /usr/sbin/zabbix-agent2-plugin/zabbix-agent2-linux-btg-account-check
+          2. Add to the agent config:
+             Plugins.BTGAccountCheck.System.Path=/usr/sbin/zabbix-agent2-plugin/zabbix-agent2-linux-btg-account-check
+          3. Ensure the agent can read {$BTG.LOGFILE} and write the checkpoint dir, then restart zabbix-agent2.
+      groups:
+        - name: Templates
+      items:
+        - uuid: 7d2e0b8f5c3a44d9b0f1e2d3c4b5a6f7
+          name: 'BTG account check'
+          type: ZABBIX_ACTIVE
+          key: 'btg.account.check.log[{$BTG.LOGFILE},"{$BTG.ACCOUNTS}"]'
+          delay: '{$BTG.CHECK.INTERVAL}'
+          history: 31d
+          value_type: TEXT
+          trends: '0'
+          timeout: 10s
+          description: 'Reports new authentications by the {$BTG.ACCOUNTS} break-glass accounts in {$BTG.LOGFILE}.'
+          tags:
+            - tag: scope
+              value: security
+          triggers:
+            - uuid: 8e3f1c9a6d4b45e0c1a2b3d4e5f60718
+              expression: 'find(/Linux BTG Account Check by Zabbix agent 2 active/btg.account.check.log[{$BTG.LOGFILE},"{$BTG.ACCOUNTS}"],{$BTG.PROBLEM.WINDOW},"like","btg account")=1'
+              name: 'Break-the-glass account authenticated'
+              priority: HIGH
+              description: 'One of the monitored break-glass accounts ({$BTG.ACCOUNTS}) authenticated. Confirm this was an authorised emergency access.'
+              manual_close: 'YES'
+              tags:
+                - tag: scope
+                  value: security
+            - uuid: 9f40a2bd7e5c46f1d2b3c4e5f6071829
+              expression: 'find(/Linux BTG Account Check by Zabbix agent 2 active/btg.account.check.log[{$BTG.LOGFILE},"{$BTG.ACCOUNTS}"],#1,"like","ERROR:")=1'
+              name: 'BTG account check is failing'
+              priority: WARNING
+              description: 'The plugin returned an error (e.g. the log file is unreadable or the checkpoint dir is not writable). BTG detection is degraded.'
+            - uuid: a051b3ce8f6d4702e3c4d5e6f7182930
+              expression: 'nodata(/Linux BTG Account Check by Zabbix agent 2 active/btg.account.check.log[{$BTG.LOGFILE},"{$BTG.ACCOUNTS}"],{$BTG.NODATA})=1'
+              name: 'BTG account check is not being collected'
+              priority: WARNING
+              description: 'No result received within {$BTG.NODATA}. Break-glass detection is blind on this host.'
+      macros:
+        - macro: '{$BTG.ACCOUNTS}'
+          value: breakglass
+          description: 'Comma-separated break-glass / emergency account names to watch for. CHANGE THIS to your actual emergency accounts.'
+        - macro: '{$BTG.CHECK.INTERVAL}'
+          value: 1m
+          description: 'How often the auth log is checked for new break-glass authentications.'
+        - macro: '{$BTG.LOGFILE}'
+          value: /var/log/secure
+          description: 'Auth log path: /var/log/secure on RHEL/SUSE, /var/log/auth.log on Debian/Ubuntu.'
+        - macro: '{$BTG.NODATA}'
+          value: 10m
+          description: 'Raise a warning if no result is received within this window.'
+        - macro: '{$BTG.PROBLEM.WINDOW}'
+          value: 1h
+          description: 'How long a break-glass detection stays a problem (detections are incremental; the trigger can also be closed manually).'
+      tags:
+        - tag: scope
+          value: security

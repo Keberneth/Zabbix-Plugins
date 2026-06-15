@@ -134,22 +134,27 @@ func (p *LinuxNetworkConnectionsPlugin) Export(key string, params []string, ctx 
 func collect() (*output, error) {
 	internalNets := parseInternalNets(os.Getenv("LNC_INTERNAL_NETS"))
 
-	// Open ports: replicate "ss -4 --listen" behavior broadly using /proc
-	listenPorts, err := collectListeningPortsV4()
+	// Open ports: replicate "ss -4 --listen" behavior broadly using /proc.
+	// openPorts is the combined set (TCP LISTEN + UDP) used for the openports output.
+	// tcpListenPorts is the TCP-only LISTEN set used to classify TCP flow direction.
+	openPortsSet, tcpListenPorts, err := collectListeningPortsV4()
 	if err != nil {
 		return nil, err
 	}
 
-	// Connected TCP flows: replicate "ss ... state CONNECTED" using /proc
-	inAgg, outAgg, err := collectTcpConnectedAggV4(listenPorts, internalNets)
+	// Connected TCP flows: replicate "ss ... state CONNECTED" using /proc.
+	// Direction is classified using ONLY the TCP LISTEN set so that an outbound
+	// TCP flow whose ephemeral local port happens to match a listening UDP port
+	// is not misclassified as incoming.
+	inAgg, outAgg, err := collectTcpConnectedAggV4(tcpListenPorts, internalNets)
 	if err != nil {
 		return nil, err
 	}
 
 	// Build output arrays
-	openPorts := make([]openPort, 0, len(listenPorts))
-	portNums := make([]int, 0, len(listenPorts))
-	for p := range listenPorts {
+	openPorts := make([]openPort, 0, len(openPortsSet))
+	portNums := make([]int, 0, len(openPortsSet))
+	for p := range openPortsSet {
 		portNums = append(portNums, p)
 	}
 	sort.Ints(portNums)
@@ -245,30 +250,38 @@ func ipAllowed(ipStr string, nets []*net.IPNet) bool {
 	return false
 }
 
-func collectListeningPortsV4() (map[int]struct{}, error) {
-	ports := map[int]struct{}{}
+// collectListeningPortsV4 returns:
+//   - openPorts: the combined set of open ports (TCP LISTEN + UDP) for the openports output
+//   - tcpListenPorts: the TCP-only LISTEN set (state 0A), used to classify TCP flow direction
+func collectListeningPortsV4() (openPorts map[int]struct{}, tcpListenPorts map[int]struct{}, err error) {
+	openPorts = map[int]struct{}{}
+	tcpListenPorts = map[int]struct{}{}
 
 	// TCP LISTEN
 	if err := parseProcNetV4("/proc/net/tcp", func(localIP string, localPort int, remoteIP string, remotePort int, state string) {
 		if state == "0A" { // LISTEN
-			ports[localPort] = struct{}{}
+			openPorts[localPort] = struct{}{}
+			tcpListenPorts[localPort] = struct{}{}
 		}
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// UDP "listening" (no LISTEN state; include any local port present)
+	// UDP "listening" (no LISTEN state; include any local port present).
+	// UDP ports contribute only to the openports output, NOT to TCP direction classification.
 	_ = parseProcNetV4("/proc/net/udp", func(localIP string, localPort int, remoteIP string, remotePort int, state string) {
 		// keep consistent with "ss --listen": UDP sockets shown under LISTEN
-		ports[localPort] = struct{}{}
+		openPorts[localPort] = struct{}{}
 	})
 
-	return ports, nil
+	return openPorts, tcpListenPorts, nil
 }
 
 // collectTcpConnectedAggV4 reads /proc/net/tcp and groups "CONNECTED" TCP sockets into incoming/outgoing
-// based on whether the local port is a listening port.
-func collectTcpConnectedAggV4(listenPorts map[int]struct{}, internalNets []*net.IPNet) (map[string]int, map[string]int, error) {
+// based on whether the local port is a TCP-listening port (state 0A). The passed-in set must contain
+// ONLY TCP LISTEN ports; UDP listening ports must not be included to avoid misclassifying outbound
+// TCP flows whose ephemeral local port collides with a listening UDP port.
+func collectTcpConnectedAggV4(tcpListenPorts map[int]struct{}, internalNets []*net.IPNet) (map[string]int, map[string]int, error) {
 	incoming := map[string]int{}
 	outgoing := map[string]int{}
 
@@ -292,7 +305,7 @@ func collectTcpConnectedAggV4(listenPorts map[int]struct{}, internalNets []*net.
 			return
 		}
 
-		if _, isListen := listenPorts[localPort]; isListen {
+		if _, isListen := tcpListenPorts[localPort]; isListen {
 			k := fmt.Sprintf("%s|%d|%s", localIP, localPort, remoteIP)
 			incoming[k]++
 		} else {

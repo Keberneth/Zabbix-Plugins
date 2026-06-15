@@ -1,0 +1,191 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 7df96b18c230490a9a0a9e2307226338
+      name: Templates
+  templates:
+    - uuid: e542c1ffc744440ca55c04f38d8c4737
+      template: 'Windows Recurring Event Error Zabbix Agent Active'
+      name: 'Windows Recurring Event Error Zabbix Agent Active'
+      description: |
+        Discovers RECURRING Critical/Error events from the Windows event logs and raises a
+        problem only when a relevant event signature repeats often enough inside a time window.
+
+        Backed by the Go plugin "WinEventRecurring" (item key winevent.recurring). The plugin
+        groups events by (Log, Source, EventID, Level), counts the occurrences inside the
+        lookback window and returns a JSON array of signatures:
+          {"Log","Level","EventID","Source","Count","FirstSeen","LastSeen","Message"}
+
+        Install:
+          1. Copy zabbix-agent2-windows-recurring-event.exe to C:\Program Files\Zabbix Agent 2\
+          2. Copy zabbix-agent2-windows-recurring-event.conf to C:\Program Files\Zabbix Agent 2\conf.d\
+             (it sets Plugins.WinEventRecurring.System.Path=...)
+          3. Restart "Zabbix Agent 2".
+
+        Tuning (template macros):
+          {$WINEVENT.PERIOD}          - lookback/counting window (default 24h)
+          {$WINEVENT.RECURRING.COUNT} - occurrences in the window that make it a problem (default 10)
+          {$WINEVENT.IGNORE}          - irrelevant events to drop, "Source:EventID" rules separated
+                                        by ';' ('*' = wildcard, a bare number = EventID, a bare name
+                                        = Source). Example: "Microsoft-Windows-DistributedCOM:10016;*:10016;Microsoft-Windows-Perflib:*"
+          {$WINEVENT.LOGS}            - which event logs to scan (default System,Application)
+          {$WINEVENT.MINCOUNT}        - minimum occurrences for a signature to be discovered at all (default 2)
+      vendor:
+        name: Iver
+        version: 7.0-0-1
+      groups:
+        - name: Templates
+      items:
+        - uuid: 81b5ccc4e0c340358851d5d067470c61
+          name: 'Windows recurring Critical/Error events (raw)'
+          type: ZABBIX_ACTIVE
+          key: 'winevent.recurring[{$WINEVENT.LOGS},{$WINEVENT.PERIOD},{$WINEVENT.MAXEVENTS},{$WINEVENT.MINCOUNT},"{$WINEVENT.IGNORE}"]'
+          delay: '{$WINEVENT.CHECK.INTERVAL}'
+          history: 1d
+          value_type: TEXT
+          trends: '0'
+          timeout: 30s
+          description: 'Master item: JSON array of recurring Critical/Error event signatures. The plugin already drops events matched by {$WINEVENT.IGNORE} (passed as the last key parameter) and signatures below {$WINEVENT.MINCOUNT}, so only relevant recurring events reach discovery and triggers.'
+          triggers:
+            - uuid: 3f9c1a7e6b2d44f0a1c2e3d4f5a6b7c8
+              expression: 'nodata(/Windows Recurring Event Error Zabbix Agent Active/winevent.recurring[{$WINEVENT.LOGS},{$WINEVENT.PERIOD},{$WINEVENT.MAXEVENTS},{$WINEVENT.MINCOUNT},"{$WINEVENT.IGNORE}"],{$WINEVENT.NODATA})=1'
+              name: 'Windows recurring-event collection returned no data'
+              priority: WARNING
+              description: 'The agent/plugin has not returned the recurring-event signatures within {$WINEVENT.NODATA}. Recurring-event monitoring is blind on this host.'
+              tags:
+                - tag: scope
+                  value: windows-events
+      discovery_rules:
+        - uuid: c70abad91ff542a1914eaa1f30d3c0ec
+          name: 'Recurring Windows event signatures'
+          type: DEPENDENT
+          key: winevent.recurring.discovery
+          delay: '0'
+          lifetime: 7d
+          description: 'Discovers each recurring (Log, Level, EventID, Source) signature returned by the master item.'
+          item_prototypes:
+            - uuid: 7207c8d0e41d42faa89d024482e52ff2
+              name: 'Recurring count: {#LEVEL} {#EVENTID} - {#SOURCE} ({#LOG})'
+              type: DEPENDENT
+              key: 'winevent.recurring.count[{#LOG},{#LEVEL},{#EVENTID},{#SOURCE}]'
+              delay: '0'
+              history: 7d
+              trends: 30d
+              value_type: UNSIGNED
+              description: 'Number of times this event signature occurred within {$WINEVENT.PERIOD}. Returns 0 when the signature is no longer present so the trigger recovers automatically.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      try {
+                          var data = JSON.parse(value);
+                          if (!(data instanceof Array)) data = [data];
+                          for (var i = 0; i < data.length; i++) {
+                              var e = data[i];
+                              if (e && e.Log === '{#LOG}' && e.Level === '{#LEVEL}' &&
+                                  e.EventID == {#EVENTID} && e.Source === '{#SOURCE}') {
+                                  return e.Count;
+                              }
+                          }
+                      } catch (err) {}
+                      return 0;
+              master_item:
+                key: 'winevent.recurring[{$WINEVENT.LOGS},{$WINEVENT.PERIOD},{$WINEVENT.MAXEVENTS},{$WINEVENT.MINCOUNT},"{$WINEVENT.IGNORE}"]'
+              tags:
+                - tag: 'Customer Read'
+                - tag: event_id
+                  value: '{#EVENTID}'
+              trigger_prototypes:
+                - uuid: 713639e709214ff89d3554f9e788c7e1
+                  expression: 'last(/Windows Recurring Event Error Zabbix Agent Active/winevent.recurring.count[{#LOG},{#LEVEL},{#EVENTID},{#SOURCE}])>={$WINEVENT.RECURRING.COUNT}'
+                  name: 'Recurring {#LEVEL} event {#EVENTID} from "{#SOURCE}" in {#LOG} ({ITEM.LASTVALUE1} occurrences in {$WINEVENT.PERIOD})'
+                  priority: AVERAGE
+                  description: 'Event {#EVENTID} from {#SOURCE} occurred at least {$WINEVENT.RECURRING.COUNT} times within {$WINEVENT.PERIOD}. Adjust {$WINEVENT.RECURRING.COUNT}/{$WINEVENT.PERIOD} to tune, or add the event to {$WINEVENT.IGNORE} if it is noise.'
+                  manual_close: 'YES'
+                  tags:
+                    - tag: 'Customer Read'
+                    - tag: scope
+                      value: windows-events
+                    - tag: event_id
+                      value: '{#EVENTID}'
+            - uuid: e84612f0bcd24af987caef4cce5d82c3
+              name: 'Recurring message: {#LEVEL} {#EVENTID} - {#SOURCE} ({#LOG})'
+              type: DEPENDENT
+              key: 'winevent.recurring.message[{#LOG},{#LEVEL},{#EVENTID},{#SOURCE}]'
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: TEXT
+              description: 'A sample message for this recurring event signature.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      try {
+                          var data = JSON.parse(value);
+                          if (!(data instanceof Array)) data = [data];
+                          for (var i = 0; i < data.length; i++) {
+                              var e = data[i];
+                              if (e && e.Log === '{#LOG}' && e.Level === '{#LEVEL}' &&
+                                  e.EventID == {#EVENTID} && e.Source === '{#SOURCE}') {
+                                  return (e.Message == null) ? '' : String(e.Message);
+                              }
+                          }
+                      } catch (err) {}
+                      return '';
+              master_item:
+                key: 'winevent.recurring[{$WINEVENT.LOGS},{$WINEVENT.PERIOD},{$WINEVENT.MAXEVENTS},{$WINEVENT.MINCOUNT},"{$WINEVENT.IGNORE}"]'
+              tags:
+                - tag: 'Customer Read'
+                - tag: event_id
+                  value: '{#EVENTID}'
+          master_item:
+            key: 'winevent.recurring[{$WINEVENT.LOGS},{$WINEVENT.PERIOD},{$WINEVENT.MAXEVENTS},{$WINEVENT.MINCOUNT},"{$WINEVENT.IGNORE}"]'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var out = [];
+                  try {
+                      var data = JSON.parse(value);
+                      if (!(data instanceof Array)) data = [data];
+                      for (var i = 0; i < data.length; i++) {
+                          var e = data[i];
+                          if (!e || e.EventID === undefined || e.Source === undefined) continue;
+                          out.push({
+                              '{#LOG}': e.Log,
+                              '{#LEVEL}': e.Level,
+                              '{#EVENTID}': e.EventID,
+                              '{#SOURCE}': e.Source
+                          });
+                      }
+                  } catch (err) {}
+                  return JSON.stringify({data: out});
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1h
+      macros:
+        - macro: '{$WINEVENT.CHECK.INTERVAL}'
+          value: 10m
+          description: 'How often the agent collects the recurring-event signatures.'
+        - macro: '{$WINEVENT.IGNORE}'
+          value: 'Microsoft-Windows-DistributedCOM:10016'
+          description: 'Irrelevant events to drop before they can trigger. Rules separated by ";" as Source:EventID; "*" is a wildcard, a bare number is an EventID, a bare name is a Source. Example: Microsoft-Windows-DistributedCOM:10016;*:10016;Microsoft-Windows-Perflib:*'
+        - macro: '{$WINEVENT.LOGS}'
+          value: System,Application
+          description: 'Comma-separated event logs to scan. Reading the Security log requires the agent to run with sufficient privileges.'
+        - macro: '{$WINEVENT.MAXEVENTS}'
+          value: '2000'
+          description: 'Per-log cap on the number of events scanned each collection (bounds load on busy hosts).'
+        - macro: '{$WINEVENT.MINCOUNT}'
+          value: '2'
+          description: 'Minimum occurrences within the window for a signature to be discovered at all. Keeps one-off errors out of discovery; the problem threshold is {$WINEVENT.RECURRING.COUNT}.'
+        - macro: '{$WINEVENT.NODATA}'
+          value: 1h
+          description: 'Raise a warning if no recurring-event data is received within this window.'
+        - macro: '{$WINEVENT.PERIOD}'
+          value: 24h
+          description: 'Lookback/counting window for recurrences (e.g. 24h, 12h, 90m). This is the "under what time" part of the recurrence rule.'
+        - macro: '{$WINEVENT.RECURRING.COUNT}'
+          value: '10'
+          description: 'How many times an event must recur within {$WINEVENT.PERIOD} to raise a problem.'

@@ -17,8 +17,22 @@ zabbix_export:
           name: 'Linux Listening Services JSON'
           type: ZABBIX_ACTIVE
           key: service.listening.port
-          delay: 1d
+          delay: '{$SVC_PORT.DELAY}'
           history: 7d
           value_type: TEXT
           trends: '0'
-          timeout: 45s
+          timeout: 10s
+          description: 'JSON inventory of listening TCP ports and their owning services/processes.'
+          triggers:
+            - uuid: d4e5f60718293a4b5c6d7e8f901a2b3c
+              expression: 'nodata(/Linux Service Listning Port Zabbix Agent Active/service.listening.port,{$SVC_PORT.NODATA})=1'
+              name: 'Linux listening-port inventory is not being collected'
+              priority: WARNING
+              description: 'No listening-port inventory has been received within {$SVC_PORT.NODATA} (agent down, plugin missing, or ss not available).'
+      macros:
+        - macro: '{$SVC_PORT.DELAY}'
+          value: 1h
+          description: 'How often the listening-port inventory is collected. Lower than the old 1d default so newly opened ports are detected sooner.'
+        - macro: '{$SVC_PORT.NODATA}'
+          value: 2h
+          description: 'Raise a warning if no listening-port inventory is received within this window (keep > {$SVC_PORT.DELAY}).'
