@@ -106,7 +106,7 @@ zabbix_export:
               name: 'Windows time synchronization query failed'
               priority: AVERAGE
               description: 'The NTP query to {$NTP.SERVER} failed or returned an unsynchronised/invalid response on the last 3 attempts. The clock offset cannot be verified.'
-        - uuid: 7e1f2a3b4c5d6e7f8091a2b3c4d5e6f7
+        - uuid: b86368dbeb5646e49fa6634849596412
           name: 'Windows NTP server stratum'
           type: DEPENDENT
           key: windows.ntp.sync.stratum
@@ -121,7 +121,7 @@ zabbix_export:
               error_handler: DISCARD_VALUE
           master_item:
             key: 'windows.ntp.sync[{$NTP.SERVER}]'
-        - uuid: 8f2a3b4c5d6e7f8091a2b3c4d5e6f701
+        - uuid: 5f8f83f38cba492aaa5eefdd4407722f
           name: 'Windows NTP round-trip time'
           type: DEPENDENT
           key: windows.ntp.sync.rtt
@@ -173,7 +173,7 @@ zabbix_export:
           value: pool.ntp.org
           description: 'Reference NTP server/pool. In an AD domain set this to the PDC Emulator.'
       valuemaps:
-        - uuid: a1b2c3d4e5f60718293a4b5c6d7e8f90
+        - uuid: 679b0eeae3f746379bf79357912f726d
           name: 'NTP success'
           mappings:
             - value: '0'
