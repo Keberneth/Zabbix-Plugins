@@ -9,6 +9,9 @@
 **/zabbix-agent2-*
 !**/zabbix-agent2-*.conf
 
+# Generated Windows version-info resources (produced in CI before build)
+*.syso
+
 # Local build / self-test scratch
 test_build
 test_*.exe

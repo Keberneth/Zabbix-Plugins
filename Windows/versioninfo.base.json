@@ -1,0 +1,24 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "Keberneth / Zabbix-Plugins",
+    "FileDescription": "Read-only Zabbix Agent 2 monitoring plugin",
+    "InternalName": "zabbix-agent2-plugin",
+    "LegalCopyright": "MIT License - https://github.com/Keberneth/Zabbix-Plugins",
+    "OriginalFilename": "zabbix-agent2-plugin.exe",
+    "ProductName": "Zabbix Agent 2 Monitoring Plugins",
+    "ProductVersion": "1.0.0",
+    "Comments": "Collects telemetry only. Does not modify system configuration."
+  },
+  "VarFileInfo": {
+    "Translation": { "LangID": "0409", "CharsetID": "04B0" }
+  }
+}

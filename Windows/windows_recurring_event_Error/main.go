@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package main
 
 import (
@@ -53,8 +56,8 @@ type winEventRecurringPlugin struct {
 }
 
 func main() {
-	if code, handled := maybeRunStandalone(os.Args[1:]); handled {
-		os.Exit(code)
+	if runStandalone(os.Args[1:]) {
+		return
 	}
 
 	if err := run(); err != nil {
@@ -269,12 +272,18 @@ func printStandaloneUsage() {
 	fmt.Fprintln(os.Stderr, "  zabbix-agent2-windows-recurring-event.exe --standalone --verbose System,Application 24h")
 }
 
-func maybeRunStandalone(args []string) (int, bool) {
-	if len(args) == 0 {
-		printStandaloneUsage()
-		return 2, true
-	}
-
+// runStandalone runs the plugin's self-test and reports whether it handled
+// execution. It only does so when --standalone (or --selftest) is explicitly
+// requested. When Zabbix Agent 2 launches the plugin it passes the IPC socket
+// path and a registerStart bool — never these flags — so this returns false and
+// main proceeds to the plugin handler.
+//
+// Crucially it never calls os.Exit on the agent's arguments. The previous
+// version exited (code 2, printing usage) when args were empty or began with
+// "-"/"/", which would abort the plugin before it registered. A loadable plugin
+// that fails to register takes the whole agent down with it, so the parser must
+// fall through to the handler for anything that is not an explicit flag.
+func runStandalone(args []string) bool {
 	standalone := false
 	verbose := false
 	var positional []string
@@ -287,26 +296,26 @@ func maybeRunStandalone(args []string) (int, bool) {
 			verbose = true
 		case "--help", "-h", "-?", "/?", "/h", "/help":
 			printStandaloneUsage()
-			return 0, true
+			return true
 		default:
-			if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "/") {
-				fmt.Fprintf(os.Stderr, "unknown argument: %s\n\n", arg)
-				printStandaloneUsage()
-				return 2, true
+			// Anything that is not an explicit flag (the agent's socket path
+			// and registerStart bool included) is ignored unless we are in
+			// standalone mode, where bare values are item-key parameters.
+			if !strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "/") {
+				positional = append(positional, arg)
 			}
-			positional = append(positional, arg)
 		}
 	}
 
 	if !standalone {
-		return 0, false
+		return false
 	}
 
 	impl := &winEventRecurringPlugin{}
 	res, err := impl.Export(metricKey, positional, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		return 1, true
+		os.Exit(1)
 	}
 
 	payload, _ := res.(string)
@@ -320,5 +329,5 @@ func maybeRunStandalone(args []string) (int, bool) {
 	}
 
 	fmt.Println(payload)
-	return 0, true
+	return true
 }

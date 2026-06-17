@@ -21,33 +21,28 @@ jobs:
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
       has_changes: ${{ steps.filter.outputs.has_changes }}
+      expected_count: ${{ steps.filter.outputs.expected_count }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
-          fetch-depth: 2
           persist-credentials: false
 
-      - name: Detect changed plugins
+      - name: Collect plugin matrix
         id: filter
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            MATCH_ALL=true
-          elif git rev-parse HEAD~1 >/dev/null 2>&1; then
-            MATCH_ALL=false
-            CHANGED=$(git diff --name-only HEAD~1 HEAD)
-          else
-            MATCH_ALL=true
-          fi
-
+          # Build EVERY plugin on every run. The release job publishes a single
+          # make_latest release containing only this run's artifacts, so building
+          # a subset (only the plugins changed since the previous commit) left the
+          # "latest" release missing every other plugin's binary. A Zabbix Agent 2
+          # loadable plugin whose System.Path .exe is absent makes the agent fail
+          # to start entirely, so each release must carry the full set.
           PLUGINS='[]'
 
           add_plugin() {
             local dir="$1" goos="$2" binary="$3"
-            if [ "$MATCH_ALL" = true ] || echo "$CHANGED" | grep -q "^${dir}/"; then
-              PLUGINS=$(echo "$PLUGINS" | jq -c \
-                --arg d "$dir" --arg g "$goos" --arg b "$binary" \
-                '. += [{"dir":$d,"goos":$g,"binary":$b}]')
-            fi
+            PLUGINS=$(echo "$PLUGINS" | jq -c \
+              --arg d "$dir" --arg g "$goos" --arg b "$binary" \
+              '. += [{"dir":$d,"goos":$g,"binary":$b}]')
           }
 
           # Windows plugins
@@ -68,12 +63,15 @@ jobs:
           add_plugin "Linux/linux_ntp_sync"                   "linux"   "zabbix-agent2-linux-ntp-sync"
           add_plugin "Linux/linux_service_listening_port"     "linux"   "zabbix-agent2-linux-service-listening-port"
 
+          COUNT=$(echo "$PLUGINS" | jq 'length')
           if [ "$PLUGINS" = "[]" ]; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo 'matrix={"include":[]}' >> "$GITHUB_OUTPUT"
+            echo "expected_count=0" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "matrix=$(echo "$PLUGINS" | jq -c '{"include":.}')" >> "$GITHUB_OUTPUT"
+            echo "expected_count=$COUNT" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -83,6 +81,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    env:
+      # Optional Authenticode signing. Define these repo secrets to enable it:
+      #   WINDOWS_CODE_SIGN_PFX_BASE64   = base64 of your code-signing .pfx
+      #   WINDOWS_CODE_SIGN_PFX_PASSWORD = the .pfx password
+      # Signed binaries from a known publisher are the durable fix for the
+      # Defender "Wacapew.A!ml" machine-learning false positive on unsigned Go
+      # executables. The step is skipped (no-op) when the secret is absent.
+      SIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODE_SIGN_PFX_BASE64 }}
+      SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -110,6 +117,26 @@ jobs:
           GOARCH: amd64
         run: govulncheck ./...
 
+      - name: Embed Windows version metadata
+        # Stamp the PE with CompanyName/ProductName/FileDescription/version so it
+        # is not a metadata-less binary — a small but real factor in Defender's
+        # ML reputation scoring. Best-effort: never block a release on it.
+        if: matrix.goos == 'windows'
+        continue-on-error: true
+        working-directory: ${{ matrix.dir }}
+        run: |
+          go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.4.1
+          bin='${{ matrix.binary }}'
+          name="${bin%.exe}"
+          "$(go env GOPATH)/bin/goversioninfo" -64 \
+            -product-name "Zabbix Agent 2 Monitoring Plugins" \
+            -description "Read-only Zabbix Agent 2 monitoring plugin ($name)" \
+            -original-name "$bin" \
+            -internal-name "$name" \
+            -o resource_windows_amd64.syso \
+            "$GITHUB_WORKSPACE/Windows/versioninfo.base.json"
+          echo "Embedded version metadata into resource_windows_amd64.syso"
+
       - name: Build ${{ matrix.binary }}
         working-directory: ${{ matrix.dir }}
         env:
@@ -131,6 +158,26 @@ jobs:
         working-directory: ${{ matrix.dir }}
         run: clamscan --infected --recursive=no --no-summary "${{ matrix.binary }}"
 
+      - name: Code-sign ${{ matrix.binary }} (optional)
+        # Authenticode-sign Windows binaries when a signing cert is configured.
+        # Skipped automatically when WINDOWS_CODE_SIGN_PFX_BASE64 is unset.
+        if: matrix.goos == 'windows' && env.SIGN_PFX_BASE64 != ''
+        working-directory: ${{ matrix.dir }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends osslsigncode
+          printf '%s' "$SIGN_PFX_BASE64" | base64 -d > "$RUNNER_TEMP/codesign.pfx"
+          osslsigncode sign \
+            -pkcs12 "$RUNNER_TEMP/codesign.pfx" -pass "$SIGN_PFX_PASSWORD" \
+            -h sha256 \
+            -n "Zabbix Agent 2 monitoring plugin" \
+            -i "https://github.com/Keberneth/Zabbix-Plugins" \
+            -ts http://timestamp.digicert.com \
+            -in "${{ matrix.binary }}" -out "${{ matrix.binary }}.signed"
+          mv "${{ matrix.binary }}.signed" "${{ matrix.binary }}"
+          rm -f "$RUNNER_TEMP/codesign.pfx"
+          echo "Signed ${{ matrix.binary }}"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.binary }}
@@ -138,7 +185,7 @@ jobs:
           retention-days: 90
 
   release:
-    needs: build
+    needs: [detect-changes, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -153,6 +200,29 @@ jobs:
           done
           echo "Release contents:"
           ls -lh release/
+
+      - name: Verify the release contains every built binary
+        env:
+          EXPECTED: ${{ needs.detect-changes.outputs.expected_count }}
+        run: |
+          # Refuse to publish an incomplete make_latest release: a missing
+          # binary would leave users' Plugins.<name>.System.Path pointing at a
+          # nonexistent .exe, which makes Zabbix Agent 2 fail to start entirely.
+          ACTUAL=$(find release -type f | wc -l)
+          echo "Expected $EXPECTED binaries, found $ACTUAL."
+          if [ "$ACTUAL" -ne "$EXPECTED" ]; then
+            echo "::error::Release is incomplete ($ACTUAL/$EXPECTED binaries); not publishing."
+            exit 1
+          fi
+
+      - name: Generate SHA256 manifest
+        # Ship a hash manifest so operators can verify each binary on the host
+        # (and report exact hashes to Microsoft when submitting false positives).
+        working-directory: release
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          echo "SHA256SUMS.txt:"
+          cat SHA256SUMS.txt
 
       - uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
