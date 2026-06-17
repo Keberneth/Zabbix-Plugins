@@ -29,7 +29,7 @@ zabbix_export:
              Plugins.WindowsNTPSync.System.Path=C:\Program Files\Zabbix Agent 2\zabbix-agent2-windows-ntpsync.exe
           3. Restart "Zabbix Agent 2".
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-2
       groups:
         - name: Templates
