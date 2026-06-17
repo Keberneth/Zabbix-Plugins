@@ -31,7 +31,7 @@ zabbix_export:
           {$WINEVENT.LOGS}            - which event logs to scan (default System,Application)
           {$WINEVENT.MINCOUNT}        - minimum occurrences for a signature to be discovered at all (default 2)
       vendor:
-        name: Iver
+        name: Keberneth
         version: 7.0-0-1
       groups:
         - name: Templates
