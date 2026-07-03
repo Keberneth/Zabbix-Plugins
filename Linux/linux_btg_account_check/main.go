@@ -32,7 +32,8 @@ import (
 const (
 	metricKey            = "btg.account.check.log"
 	defaultDedupSeconds  = 300
-	maxLineBytes         = 1 << 20 // 1 MiB
+	maxLineBytes         = 1 << 20  // 1 MiB: longest single line we buffer in memory
+	maxScanBytes         = 64 << 20 // 64 MiB: max bytes read per poll (resume next poll)
 	defaultCheckpointDir = "/var/lib/zabbix-agent2/BTGAccountCheck"
 )
 
@@ -202,6 +203,13 @@ func (p *BTGPlugin) Export(key string, params []string, ctx plugin.ContextProvid
 	found, messages, err := p.processOnce(path, accounts, checkpointDir)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
+		// A non-fatal error (e.g. a checkpoint-save failure) must never discard a
+		// real break-glass detection — reporting the accounts is the entire point
+		// of this plugin. Surface the detections when we have them; only fall back
+		// to ERROR when there is nothing to report.
+		if found && len(messages) > 0 {
+			return strings.Join(messages, "\n"), nil
+		}
 		return "ERROR: " + err.Error(), nil
 	}
 	if !found {
@@ -215,22 +223,20 @@ func (p *BTGPlugin) checkCheckpointDir(checkpointDir string) error {
 	p.checkpointCacheMu.Lock()
 	err, cached := p.checkpointOK[checkpointDir]
 	p.checkpointCacheMu.Unlock()
-	if cached {
-		return err
+	// Only a cached success short-circuits. A transient failure (dir briefly
+	// unavailable, disk full clearing) must be re-checked on the next poll rather
+	// than pinning the plugin in ERROR until the agent is restarted.
+	if cached && err == nil {
+		return nil
 	}
 
 	// perform check
-	var finalErr error
 	if err := os.MkdirAll(checkpointDir, 0o750); err != nil {
-		finalErr = fmt.Errorf("cannot create checkpoint dir %s: %v", checkpointDir, err)
-		p.cacheCheckpointDirResult(checkpointDir, finalErr)
-		return finalErr
+		return fmt.Errorf("cannot create checkpoint dir %s: %v", checkpointDir, err)
 	}
 	permCheck := filepath.Join(checkpointDir, ".permcheck")
 	if werr := os.WriteFile(permCheck, []byte("ok"), 0o600); werr != nil {
-		finalErr = fmt.Errorf("checkpoint dir %s not writable: %v", checkpointDir, werr)
-		p.cacheCheckpointDirResult(checkpointDir, finalErr)
-		return finalErr
+		return fmt.Errorf("checkpoint dir %s not writable: %v", checkpointDir, werr)
 	}
 	_ = os.Remove(permCheck)
 	p.cacheCheckpointDirResult(checkpointDir, nil)
@@ -253,6 +259,15 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 			return false, nil, fmt.Errorf("log file %s does not exist", path)
 		}
 		return false, nil, fmt.Errorf("stat failed for %s: %v", path, err)
+	}
+
+	// The log path arrives as an item-key parameter, i.e. from the Zabbix server.
+	// Refuse anything that is not a regular file so a malicious/compromised server
+	// cannot aim the root agent at a character device (/dev/zero — endless read),
+	// a FIFO (blocks forever), or a socket. Symlinks are resolved by os.Stat, so a
+	// symlink to such a target is rejected too.
+	if !info.Mode().IsRegular() {
+		return false, nil, fmt.Errorf("refusing to read non-regular file %s (mode %s)", path, info.Mode())
 	}
 
 	// Normalize accounts once (lowercase + trim) to avoid repeated allocations
@@ -302,32 +317,29 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 
 	// Track the consumed byte position with an accumulator. bufio reads ahead,
 	// so f.Seek(0, io.SeekCurrent) would report a position past what we have
-	// actually consumed and corrupt the checkpoint; summing len(line) is exact.
+	// actually consumed and corrupt the checkpoint; summing consumed bytes is exact.
 	pos := offset
 
 	var messages []string
+	var scanned int64
 	for {
-		line, err := r.ReadBytes('\n')
-		if err != nil && err != io.EOF {
-			return false, nil, fmt.Errorf("read failed: %v", err)
+		line, truncated, consumed, rerr := readBoundedLine(r, maxLineBytes)
+		if rerr != nil && rerr != io.EOF {
+			return false, nil, fmt.Errorf("read failed: %v", rerr)
 		}
 
-		pos += int64(len(line))
+		pos += consumed
+		scanned += consumed
 
-		// if line too big skip (pos has already advanced past it)
-		if len(line) > maxLineBytes {
+		if truncated {
+			// Oversized line: only the first maxLineBytes were buffered; the rest
+			// was drained without being held in memory. pos has advanced past it.
 			msg := fmt.Sprintf("oversized line (> %d bytes) in %s (file_id=%s) at offset %d — line skipped", maxLineBytes, path, fileID, pos)
 			alertKey := "LONG_LINE|" + path
 			if p.ded.shouldSend(alertKey) {
 				messages = append(messages, msg)
 			}
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
-		if len(line) > 0 {
+		} else if len(line) > 0 {
 			lineStr := strings.TrimRight(string(line), "\r\n")
 			if ok, account := matchActorInText(lineStr, normAccounts); ok {
 				key := account + "|" + path
@@ -338,7 +350,13 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 			}
 		}
 
-		if err == io.EOF {
+		if rerr == io.EOF {
+			break
+		}
+		// Bound the work done in a single poll so a huge backlog cannot pin the
+		// agent; the checkpoint below records how far we got and the next poll
+		// resumes from there.
+		if scanned >= maxScanBytes {
 			break
 		}
 	}
@@ -351,6 +369,31 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 	}
 
 	return len(messages) > 0, messages, nil
+}
+
+// readBoundedLine reads a single '\n'-terminated line from r while never buffering
+// more than max bytes in memory. If the line is longer than max, the returned data
+// is capped at max, truncated is true, and the remainder of the line is discarded
+// byte-by-byte without being retained (bounding memory). consumed is the total
+// number of bytes read for this line, including any discarded remainder and the
+// trailing '\n', so callers can keep an exact byte offset for checkpointing. On the
+// final unterminated line it returns whatever was read together with io.EOF.
+func readBoundedLine(r *bufio.Reader, max int) (line []byte, truncated bool, consumed int64, err error) {
+	for {
+		b, e := r.ReadByte()
+		if e != nil {
+			return line, truncated, consumed, e
+		}
+		consumed++
+		if b == '\n' {
+			return line, truncated, consumed, nil
+		}
+		if len(line) < max {
+			line = append(line, b)
+		} else {
+			truncated = true
+		}
+	}
 }
 
 // computeFileID same as your original helper
@@ -380,10 +423,22 @@ func saveCheckpointForPath(checkpointDir, path, fileID string, offset int64) err
 	}
 
 	fn := checkpointFilename(checkpointDir, path)
-	tmp := fn + ".tmp"
 
-	// write tmp file first
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	// Write to a per-call unique temp file. A fixed "<fn>.tmp" name would be shared
+	// by concurrent saves for the same path (the SDK may invoke Export in parallel),
+	// letting two writers clobber each other's temp file before the rename.
+	tmpf, err := os.CreateTemp(checkpointDir, filepath.Base(fn)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := tmpf.Name()
+	if _, err := tmpf.Write(data); err != nil {
+		_ = tmpf.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := tmpf.Close(); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 
