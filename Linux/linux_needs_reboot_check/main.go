@@ -5,17 +5,25 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"sort"
 	"strings"
+	"time"
 
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
 )
+
+// commandTimeout bounds every external command. Without it a hung package
+// manager (a held dnf/rpm/zypper lock, a stuck NFS mount behind /usr/bin) would
+// block Export indefinitely and leak one child process per poll cycle. Kept
+// generously below a typical Zabbix item timeout so the plugin fails fast with
+// an error instead of being killed by the agent.
+const commandTimeout = 15 * time.Second
 
 const (
 	// IMPORTANT: pluginName must match the name used in the Zabbix Agent2 plugin config section:
@@ -376,7 +384,10 @@ func lookPath(name string) (path string, ok bool) {
 // runExitCode executes a command and returns its exit code.
 // It treats "process exited with non-zero code" as non-fatal and returns the exit code.
 func runExitCode(path string, args ...string) (code int, stdout string, stderr string, err error) {
-	cmd := exec.Command(path, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, path, args...)
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -385,6 +396,10 @@ func runExitCode(path string, args ...string) (code int, stdout string, stderr s
 
 	stdout = strings.TrimSpace(outBuf.String())
 	stderr = strings.TrimSpace(errBuf.String())
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return -1, stdout, stderr, fmt.Errorf("%s timed out after %s", path, commandTimeout)
+	}
 
 	if e == nil {
 		return 0, stdout, stderr, nil
@@ -403,7 +418,9 @@ func cmdOutputTrim(name string, args ...string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command(p, args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, p, args...).Output()
 	if err != nil {
 		return "", err
 	}
@@ -421,7 +438,9 @@ func latestKernelCoreRPM() (string, error) {
 
 	// Query installed kernel-core packages. rpm returns non-zero if none installed.
 	qf := "%{VERSION}-%{RELEASE}.%{ARCH}\n"
-	out, err := exec.Command(rpmPath, "-q", "--qf", qf, "kernel-core").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, rpmPath, "-q", "--qf", qf, "kernel-core").Output()
 	if err != nil {
 		// Not installed / not RPM based.
 		return "", nil
@@ -442,7 +461,9 @@ func latestKernelCoreRPM() (string, error) {
 
 	// Prefer GNU sort -V for correct version ordering (mirrors the original shell script).
 	if sortPath, ok := lookPath("sort"); ok {
-		sortCmd := exec.Command(sortPath, "-V")
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		sortCmd := exec.CommandContext(ctx, sortPath, "-V")
 		sortCmd.Stdin = bytes.NewReader([]byte(strings.Join(filtered, "\n") + "\n"))
 		sortedOut, e := sortCmd.Output()
 		if e == nil {
@@ -461,6 +482,15 @@ func latestKernelCoreRPM() (string, error) {
 		// Fall through to in-process sort if sort(1) failed unexpectedly.
 	}
 
-	sort.Strings(filtered)
-	return filtered[len(filtered)-1], nil
+	// In-process fallback: pick the highest version with the same version-aware
+	// comparison used elsewhere. A lexical sort.Strings would mis-order kernel
+	// versions (e.g. "5.14.0-9" > "5.14.0-10"), silently disabling the
+	// kernel-mismatch reboot signal.
+	latest := filtered[0]
+	for _, v := range filtered[1:] {
+		if compareVersions(v, latest) > 0 {
+			latest = v
+		}
+	}
+	return latest, nil
 }

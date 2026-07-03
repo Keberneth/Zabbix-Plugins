@@ -116,15 +116,20 @@ func (p *LinuxNetworkConnectionsPlugin) Export(key string, params []string, ctx 
 
 	out, err := collect()
 	if err != nil {
+		// A collection failure (e.g. /proc/net/tcp unreadable) must surface as an
+		// item error rather than a healthy-looking empty payload; otherwise the
+		// template's nodata/parse triggers can never fire and a broken collector
+		// reads as "no connections". A genuinely empty host still returns valid
+		// JSON with empty arrays via the success path below.
 		p.logf("[%s] %v", pluginName, err)
-		return `{"openports":[],"incomingconnections":[],"outgoingconnections":[],"timestamp":"0"}`, nil
+		return nil, errs.Wrap(err, "collection failed")
 	}
 
 	// Return JSON string to match the original script output style.
 	b, err := json.Marshal(out)
 	if err != nil {
 		p.logf("[%s] JSON marshal error: %v", pluginName, err)
-		return `{"openports":[],"incomingconnections":[],"outgoingconnections":[],"timestamp":"0"}`, nil
+		return nil, errs.Wrap(err, "failed to marshal output")
 	}
 	return string(b), nil
 }

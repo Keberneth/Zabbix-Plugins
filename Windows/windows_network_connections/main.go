@@ -208,10 +208,14 @@ func ntohs(n uint16) uint16 {
 	return (n<<8)&0xff00 | (n>>8)&0x00ff
 }
 
-func ipFromDWORD(netOrder uint32) net.IP {
+func ipFromDWORD(addr uint32) net.IP {
+	// dwLocalAddr/dwRemoteAddr hold the IPv4 octets in network byte order, i.e. the
+	// in-memory bytes are already [a,b,c,d]. Reading the struct field on a
+	// little-endian host yields a uint32 whose little-endian encoding reproduces
+	// those same bytes, so LittleEndian.PutUint32 recovers the correct octet order.
+	// (BigEndian here would reverse every address, e.g. 127.0.0.1 -> 1.0.0.127.)
 	b := make([]byte, 4)
-	// dwLocalAddr/dwRemoteAddr are in network byte order.
-	binary.BigEndian.PutUint32(b, netOrder)
+	binary.LittleEndian.PutUint32(b, addr)
 	return net.IPv4(b[0], b[1], b[2], b[3])
 }
 
@@ -237,8 +241,8 @@ func buildPayload() (*payload, error) {
 		if r.State != mibTCPStateListen {
 			continue
 		}
-		localIP := ipFromDWORD(r.LocalAddr).String()
-		if localIP == "127.0.0.1" {
+		localIPAddr := ipFromDWORD(r.LocalAddr)
+		if localIPAddr.IsLoopback() {
 			continue
 		}
 		port := tcpPort(r.LocalPort)
@@ -279,12 +283,15 @@ func buildPayload() (*payload, error) {
 			continue
 		}
 
-		localIP := ipFromDWORD(r.LocalAddr).String()
-		remoteIP := ipFromDWORD(r.RemoteAddr).String()
+		localIPAddr := ipFromDWORD(r.LocalAddr)
+		remoteIPAddr := ipFromDWORD(r.RemoteAddr)
 
-		if localIP == "127.0.0.1" || remoteIP == "127.0.0.1" {
+		if localIPAddr.IsLoopback() || remoteIPAddr.IsLoopback() {
 			continue
 		}
+
+		localIP := localIPAddr.String()
+		remoteIP := remoteIPAddr.String()
 
 		lp := tcpPort(r.LocalPort)
 		rp := tcpPort(r.RemotePort)

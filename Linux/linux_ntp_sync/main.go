@@ -4,9 +4,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -97,16 +99,32 @@ func (p *LinuxNTPSyncPlugin) Export(key string, params []string, _ plugin.Contex
 // stratum 0 or >= 16). Returns the first valid response, the number of attempts
 // made, and the last error on total failure.
 func queryNTP(server string) (*ntp.Response, int, error) {
+	// Bound DNS resolution explicitly. QueryOptions.Timeout covers only the UDP
+	// exchange, not name resolution, so a hung resolver would otherwise let a
+	// single Export run for the OS resolver's timeout on every attempt and blow
+	// past the item timeout. Resolve once up front (DNS is stable across retries)
+	// and query the resulting address.
+	addr, err := resolveNTPServer(server, queryTimeout)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	var lastErr error
 	for try := 1; try <= maxRetries; try++ {
 		if try > 1 {
 			time.Sleep(retryBackoff)
 		}
 
-		r, err := ntp.QueryWithOptions(server, ntp.QueryOptions{Timeout: queryTimeout})
+		r, err := ntp.QueryWithOptions(addr, ntp.QueryOptions{Timeout: queryTimeout})
 		if err != nil {
 			lastErr = err
 			continue
+		}
+		if r.IsKissOfDeath() {
+			// RFC 5905: a Kiss-of-Death (RATE/DENY/RSTR) must not be retried —
+			// hammering the server can get the agent's IP rate-limited or blocked.
+			// Fail immediately instead of looping.
+			return nil, try, fmt.Errorf("server sent Kiss-of-Death %q; not retrying", r.KissCode)
 		}
 		if err := r.Validate(); err != nil {
 			lastErr = err
@@ -115,6 +133,36 @@ func queryNTP(server string) (*ntp.Response, int, error) {
 		return r, try, nil
 	}
 	return nil, maxRetries, lastErr
+}
+
+// resolveNTPServer resolves the (optionally host:port) server to an address with
+// a bounded DNS timeout. Literal IPs are returned unchanged (no lookup). Any
+// port supplied by the caller is preserved.
+func resolveNTPServer(server string, timeout time.Duration) (string, error) {
+	host := server
+	port := ""
+	if h, p, err := net.SplitHostPort(server); err == nil {
+		host, port = h, p
+	}
+	if net.ParseIP(host) != nil {
+		return server, nil // already a literal IP; no DNS needed
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var res net.Resolver
+	addrs, err := res.LookupHost(ctx, host)
+	if err != nil {
+		return "", fmt.Errorf("DNS resolution of %q failed: %v", host, err)
+	}
+	if len(addrs) == 0 {
+		return "", fmt.Errorf("DNS resolution of %q returned no addresses", host)
+	}
+	if port != "" {
+		return net.JoinHostPort(addrs[0], port), nil
+	}
+	return addrs[0], nil
 }
 
 func validateServer(server string) error {

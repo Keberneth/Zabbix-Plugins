@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"golang.zabbix.com/sdk/plugin"
@@ -15,12 +16,21 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	pluginName = "LinuxServiceListeningPort"
 	metricKey  = "service.listening.port"
+
+	// Bound the ss invocation so a wedged ss (e.g. blocked on a stuck netlink
+	// socket) cannot block Export forever and leak a child process each poll.
+	ssCommandTimeout = 10 * time.Second
 )
+
+// ss users() format is typically: users:(("proc",pid=123,fd=3)). Compiled once
+// at package scope rather than on every Export call.
+var reUser = regexp.MustCompile(`\("([^"]+)",pid=(\d+)`)
 
 type listeningPortEntry struct {
 	Port        int   `json:"Port"`
@@ -49,14 +59,17 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 
 	out, err := collectListeningPorts()
 	if err != nil {
+		// Surface a collection failure (ss missing/failed/timed out) as an item
+		// error instead of an empty "[]" that reads as "no listening ports" and
+		// hides the outage from the template's nodata trigger.
 		p.logf("[%s] %v", pluginName, err)
-		return "[]", nil
+		return nil, err
 	}
 
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		p.logf("[%s] JSON marshal error: %v", pluginName, err)
-		return "[]", nil
+		return nil, err
 	}
 	return string(b), nil
 }
@@ -65,7 +78,11 @@ func main() {
 	for _, a := range os.Args[1:] {
 		if a == "--standalone" || a == "-standalone" || a == "standalone" {
 			p := &impl{}
-			v, _ := p.Export(metricKey, nil, nil)
+			v, err := p.Export(metricKey, nil, nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
 			fmt.Println(v)
 			os.Exit(0)
 		}
@@ -107,12 +124,15 @@ func collectListeningPorts() ([]listeningPortEntry, error) {
 		27017: "MongoDB",
 	}
 
-	// ss users() format is typically: users:(("proc",pid=123,fd=3))
-	reUser := regexp.MustCompile(`\("([^"]+)",pid=(\d+)`)
+	ctx, cancel := context.WithTimeout(context.Background(), ssCommandTimeout)
+	defer cancel()
 
-	cmd := exec.Command("ss", "-tnlp")
+	cmd := exec.CommandContext(ctx, resolveSS(), "-tnlp")
 	outBytes, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("ss -tnlp timed out after %s", ssCommandTimeout)
+		}
 		return nil, fmt.Errorf("failed to run ss -tnlp: %w", err)
 	}
 
@@ -221,6 +241,22 @@ func collectListeningPorts() ([]listeningPortEntry, error) {
 	})
 
 	return all, nil
+}
+
+// resolveSS returns an absolute path to ss, preferring the standard system
+// locations before falling back to a PATH lookup. A root-context daemon should
+// not resolve a privileged tool via an inherited, potentially attacker-writable
+// PATH.
+func resolveSS() string {
+	for _, c := range []string{"/usr/sbin/ss", "/sbin/ss", "/usr/bin/ss", "/bin/ss"} {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+	}
+	if p, err := exec.LookPath("ss"); err == nil {
+		return p
+	}
+	return "ss"
 }
 
 func pidValue(p *int) (int, bool) {

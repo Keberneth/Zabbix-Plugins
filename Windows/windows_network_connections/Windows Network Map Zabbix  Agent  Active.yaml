@@ -3,8 +3,6 @@ zabbix_export:
   template_groups:
     - uuid: 9f32c6e8e1fa4fcbbbd3a506935f3e09
       name: 'Templates'
-    - uuid: 7df96b18c230490a9a0a9e2307226338
-      name: Templates
   templates:
     - uuid: 93878fe4cddd4318a380beaa434896a2
       template: 'Windows Network Map Zabbix  Agent  Active'
