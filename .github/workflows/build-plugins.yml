@@ -7,17 +7,39 @@ on:
       - "Windows/**/*.go"
       - "Windows/**/go.mod"
       - "Windows/**/go.sum"
+      - "Windows/versioninfo.base.json"
       - "Linux/**/*.go"
       - "Linux/**/go.mod"
       - "Linux/**/go.sum"
+      - ".github/workflows/build-plugins.yml"
+  pull_request:
+    paths:
+      - "Windows/**/*.go"
+      - "Windows/**/go.mod"
+      - "Windows/**/go.sum"
+      - "Windows/versioninfo.base.json"
+      - "Linux/**/*.go"
+      - "Linux/**/go.mod"
+      - "Linux/**/go.sum"
+      - ".github/workflows/build-plugins.yml"
   workflow_dispatch:
 
+# Least privilege by default; only the release job is granted contents: write.
 permissions:
-  contents: write
+  contents: read
+
+# Serialize runs on the same ref so two overlapping pushes to main cannot race
+# each other's make_latest release (the second-to-finish would otherwise
+# overwrite "latest" with a partial set). Superseded pull-request runs are
+# cancelled since they never publish; main runs are always allowed to finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.filter.outputs.matrix }}
       has_changes: ${{ steps.filter.outputs.has_changes }}
@@ -78,18 +100,10 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
-    env:
-      # Optional Authenticode signing. Define these repo secrets to enable it:
-      #   WINDOWS_CODE_SIGN_PFX_BASE64   = base64 of your code-signing .pfx
-      #   WINDOWS_CODE_SIGN_PFX_PASSWORD = the .pfx password
-      # Signed binaries from a known publisher are the durable fix for the
-      # Defender "Wacapew.A!ml" machine-learning false positive on unsigned Go
-      # executables. The step is skipped (no-op) when the secret is absent.
-      SIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODE_SIGN_PFX_BASE64 }}
-      SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_PFX_PASSWORD }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
@@ -107,8 +121,21 @@ jobs:
           go mod download
           go mod verify
 
+      - name: Vet (${{ matrix.goos }})
+        # Static analysis on every push AND pull request. Previously code was only
+        # ever built after it had already landed on main, so a broken change was
+        # detected too late; running vet here gives PRs fast feedback.
+        working-directory: ${{ matrix.dir }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
+          CGO_ENABLED: "0"
+        run: go vet ./...
+
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Pinned (not @latest) so a CI run is reproducible and cannot be changed
+        # under us by a new upstream release.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
 
       - name: Vulnerability scan (govulncheck)
         working-directory: ${{ matrix.dir }}
@@ -147,23 +174,25 @@ jobs:
           go build -trimpath -ldflags "-s -w" -o "${{ matrix.binary }}"
           echo "Built ${{ matrix.binary }} ($(wc -c < "${{ matrix.binary }}") bytes)"
 
-      - name: Install ClamAV
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clamav
-          sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
-          sudo freshclam --quiet
-
-      - name: AV scan ${{ matrix.binary }}
-        working-directory: ${{ matrix.dir }}
-        run: clamscan --infected --recursive=no --no-summary "${{ matrix.binary }}"
-
       - name: Code-sign ${{ matrix.binary }} (optional)
         # Authenticode-sign Windows binaries when a signing cert is configured.
-        # Skipped automatically when WINDOWS_CODE_SIGN_PFX_BASE64 is unset.
-        if: matrix.goos == 'windows' && env.SIGN_PFX_BASE64 != ''
+        # Skipped (exit 0) inside the script when WINDOWS_CODE_SIGN_PFX_BASE64 is
+        # unset — e.g. on fork pull requests, which have no access to secrets.
+        #
+        # The signing secrets are scoped to THIS step's env only (not the job env),
+        # so earlier steps — go build, module downloads, govulncheck's own install —
+        # never have the code-signing key/password in their environment where a
+        # compromised dependency could read and exfiltrate them.
+        if: matrix.goos == 'windows' && github.event_name != 'pull_request'
         working-directory: ${{ matrix.dir }}
+        env:
+          SIGN_PFX_BASE64: ${{ secrets.WINDOWS_CODE_SIGN_PFX_BASE64 }}
+          SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_PFX_PASSWORD }}
         run: |
+          if [ -z "$SIGN_PFX_BASE64" ]; then
+            echo "No code-signing certificate configured; skipping signing."
+            exit 0
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends osslsigncode
           printf '%s' "$SIGN_PFX_BASE64" | base64 -d > "$RUNNER_TEMP/codesign.pfx"
@@ -184,9 +213,39 @@ jobs:
           path: ${{ matrix.dir }}/${{ matrix.binary }}
           retention-days: 90
 
-  release:
-    needs: [detect-changes, build]
+  scan:
+    needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Install ClamAV
+        # Installed and freshclam-updated ONCE here instead of in every one of the
+        # 14 matrix build jobs, which each downloaded the full signature DB (~200 MB)
+        # — a large, repeated waste of CI time and bandwidth.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clamav
+          sudo systemctl stop clamav-freshclam.service 2>/dev/null || true
+          sudo freshclam --quiet
+
+      - name: AV scan all binaries
+        run: |
+          # Scan every downloaded artifact. A detection fails this job and, because
+          # release needs [build, scan], blocks publishing.
+          clamscan --infected --recursive=yes --no-summary artifacts
+
+  release:
+    needs: [detect-changes, build, scan]
+    # Never publish from a pull request; only from pushes to main / manual dispatch.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
