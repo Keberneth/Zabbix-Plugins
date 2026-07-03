@@ -125,12 +125,17 @@ jobs:
         # Static analysis on every push AND pull request. Previously code was only
         # ever built after it had already landed on main, so a broken change was
         # detected too late; running vet here gives PRs fast feedback.
+        #
+        # unsafeptr is disabled: these plugins convert uintptr values returned by
+        # Win32/syscall APIs back to unsafe.Pointer (the referenced memory is owned
+        # by the OS/DLL, not the Go GC), which the analyzer flags as a false
+        # positive. All other vet analyzers remain enabled.
         working-directory: ${{ matrix.dir }}
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: amd64
           CGO_ENABLED: "0"
-        run: go vet ./...
+        run: go vet -unsafeptr=false ./...
 
       - name: Install govulncheck
         # Pinned (not @latest) so a CI run is reproducible and cannot be changed

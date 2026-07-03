@@ -603,20 +603,34 @@ func collectLive() (string, error) {
 	)
 	cmd.Stdin = strings.NewReader(powerShellScript)
 
-	output, err := cmd.CombinedOutput()
+	// Capture stdout and stderr separately. The JSON payload is on stdout; any
+	// warning / verbose / non-terminating-error text PowerShell writes to stderr
+	// must not be merged into it. CombinedOutput() would interleave them and make
+	// json.Unmarshal fail on an otherwise-successful collection.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	// If a child process inherits the output pipe and outlives powershell, don't
+	// let Wait block past the deadline waiting for the pipe to close.
+	cmd.WaitDelay = 5 * time.Second
+
+	err := cmd.Run()
 	if commandCtx.Err() == context.DeadlineExceeded {
 		return "", errs.Errorf("powershell collection timed out after %s", powerShellTimeout)
 	}
 
 	if err != nil {
-		errorText := strings.TrimSpace(string(output))
+		errorText := strings.TrimSpace(stderr.String())
+		if errorText == "" {
+			errorText = strings.TrimSpace(stdout.String())
+		}
 		if errorText == "" {
 			errorText = err.Error()
 		}
 		return "", errs.Wrap(err, fmt.Sprintf("powershell collection failed: %s", errorText))
 	}
 
-	return enrichPayload(output, "live", "", 0)
+	return enrichPayload(stdout.Bytes(), "live", "", 0)
 }
 
 func resolvePowerShellPath() string {

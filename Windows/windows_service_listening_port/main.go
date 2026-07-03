@@ -51,14 +51,16 @@ func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (in
 
 	out, err := collectListeningPorts()
 	if err != nil {
+		// Surface a genuine collection failure instead of an empty "[]" that reads
+		// as "no listening ports" and hides the outage from the template trigger.
 		p.logf("[%s] %v", pluginName, err)
-		return "[]", nil
+		return nil, err
 	}
 
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		p.logf("[%s] JSON marshal error: %v", pluginName, err)
-		return "[]", nil
+		return nil, err
 	}
 	return string(b), nil
 }
@@ -99,7 +101,50 @@ const (
 	afInet6 = 23
 
 	tcpTableOwnerPidAll = 5 // TCP_TABLE_OWNER_PID_ALL
+
+	errorInsufficientBuffer = 122 // ERROR_INSUFFICIENT_BUFFER
 )
+
+// getExtendedTcpTableBuf calls GetExtendedTcpTable for the given address family,
+// retrying when the connection table grows between the size probe and the fetch
+// (which then returns ERROR_INSUFFICIENT_BUFFER with an updated size). Without the
+// retry a busy host intermittently returned a hard error / empty result.
+func getExtendedTcpTableBuf(family uintptr, label string) ([]byte, error) {
+	const maxAttempts = 5
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var size uint32
+		_, _, _ = procGetExtendedTcpTable.Call(
+			0,
+			uintptr(unsafe.Pointer(&size)),
+			1, // bOrder = TRUE
+			family,
+			tcpTableOwnerPidAll,
+			0,
+		)
+		if size == 0 {
+			return nil, fmt.Errorf("GetExtendedTcpTable returned empty buffer size for %s", label)
+		}
+
+		buf := make([]byte, size)
+		r2, _, err := procGetExtendedTcpTable.Call(
+			uintptr(unsafe.Pointer(&buf[0])),
+			uintptr(unsafe.Pointer(&size)),
+			1,
+			family,
+			tcpTableOwnerPidAll,
+			0,
+		)
+		if r2 == errorInsufficientBuffer {
+			// Table grew between the two calls; retry with the new required size.
+			continue
+		}
+		if r2 != 0 {
+			return nil, fmt.Errorf("GetExtendedTcpTable(%s) failed: %v (code=%d)", label, err, r2)
+		}
+		return buf, nil
+	}
+	return nil, fmt.Errorf("GetExtendedTcpTable(%s): buffer kept growing after %d attempts", label, maxAttempts)
+}
 
 type mibTCPRowOwnerPID struct {
 	State      uint32
@@ -127,30 +172,9 @@ var (
 )
 
 func getTCPTableOwnerPIDAllIPv4() ([]mibTCPRowOwnerPID, error) {
-	var size uint32
-	_, _, _ = procGetExtendedTcpTable.Call(
-		0,
-		uintptr(unsafe.Pointer(&size)),
-		1, // bOrder = TRUE
-		afInet,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	if size == 0 {
-		return nil, fmt.Errorf("GetExtendedTcpTable returned empty buffer size for IPv4")
-	}
-
-	buf := make([]byte, size)
-	r2, _, err := procGetExtendedTcpTable.Call(
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&size)),
-		1,
-		afInet,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	if r2 != 0 {
-		return nil, fmt.Errorf("GetExtendedTcpTable(IPv4) failed: %v (code=%d)", err, r2)
+	buf, err := getExtendedTcpTableBuf(afInet, "IPv4")
+	if err != nil {
+		return nil, err
 	}
 
 	if len(buf) < 4 {
@@ -173,30 +197,9 @@ func getTCPTableOwnerPIDAllIPv4() ([]mibTCPRowOwnerPID, error) {
 }
 
 func getTCPTableOwnerPIDAllIPv6() ([]mibTCP6RowOwnerPID, error) {
-	var size uint32
-	_, _, _ = procGetExtendedTcpTable.Call(
-		0,
-		uintptr(unsafe.Pointer(&size)),
-		1, // bOrder = TRUE
-		afInet6,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	if size == 0 {
-		return nil, fmt.Errorf("GetExtendedTcpTable returned empty buffer size for IPv6")
-	}
-
-	buf := make([]byte, size)
-	r2, _, err := procGetExtendedTcpTable.Call(
-		uintptr(unsafe.Pointer(&buf[0])),
-		uintptr(unsafe.Pointer(&size)),
-		1,
-		afInet6,
-		tcpTableOwnerPidAll,
-		0,
-	)
-	if r2 != 0 {
-		return nil, fmt.Errorf("GetExtendedTcpTable(IPv6) failed: %v (code=%d)", err, r2)
+	buf, err := getExtendedTcpTableBuf(afInet6, "IPv6")
+	if err != nil {
+		return nil, err
 	}
 
 	if len(buf) < 4 {
@@ -614,8 +617,13 @@ func verQueryString(buf []byte, subBlock string) (string, error) {
 		uintptr(unsafe.Pointer(&valuePtr)),
 		uintptr(unsafe.Pointer(&valueLen)),
 	)
-	if r == 0 || valuePtr == 0 {
+	if r == 0 || valuePtr == 0 || valueLen == 0 {
 		return "", fmt.Errorf("VerQueryValueW failed for %q", subBlock)
 	}
-	return windows.UTF16PtrToString((*uint16)(unsafe.Pointer(valuePtr))), nil
+	// valueLen is the string length in WCHARs (including the trailing NUL). Bound
+	// the read to it: the version resource belongs to the target process's image
+	// and may be malformed/attacker-influenced, so reading a NUL-terminated string
+	// without a length cap risks an out-of-bounds read past the resource buffer.
+	u16 := unsafe.Slice((*uint16)(unsafe.Pointer(valuePtr)), valueLen)
+	return windows.UTF16ToString(u16), nil
 }
