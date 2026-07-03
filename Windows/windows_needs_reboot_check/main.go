@@ -135,11 +135,14 @@ func (p *NeedsRebootCheckPlugin) Export(key string, _ []string, _ plugin.Context
 
 	pending, reasons, err := isRebootPendingDetailed()
 	if err != nil {
-		// Keep old PowerShell behavior: best-effort.
+		// A genuine failure of the authoritative registry checks must surface as an
+		// item error, not a silent "0". Reporting "no reboot needed" on a host whose
+		// checks are actually broken hides the problem forever; letting the item go
+		// unsupported lets a nodata trigger catch it.
 		if p.Logger != nil {
 			p.Infof("%s: reboot pending check error: %v", pluginName, err)
 		}
-		return "0", nil
+		return nil, errs.Wrap(err, "reboot pending check failed")
 	}
 
 	if pending {
@@ -157,7 +160,7 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 
 	// 1) Component Based Servicing (CBS)
 	{
-		const path = `SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Component Based Servicing\\RebootPending`
+		const path = `SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending`
 		ok, e := registryKeyExists(registry.LOCAL_MACHINE, path)
 		if e != nil {
 			return false, nil, e
@@ -169,7 +172,7 @@ func isRebootPendingDetailed() (pending bool, reasons []string, err error) {
 
 	// 2) Windows Update
 	{
-		const path = `SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired`
+		const path = `SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired`
 		ok, e := registryKeyExists(registry.LOCAL_MACHINE, path)
 		if e != nil {
 			return false, nil, e
@@ -227,7 +230,7 @@ func registryKeyExists(root registry.Key, path string) (bool, error) {
 }
 
 func pendingFileRenameOperationsReason() (pending bool, reason string, err error) {
-	const path = `SYSTEM\\CurrentControlSet\\Control\\Session Manager`
+	const path = `SYSTEM\CurrentControlSet\Control\Session Manager`
 
 	// Most common is PendingFileRenameOperations.
 	pending, unreadable, err := registryValueNonEmptyOrUnreadable(registry.LOCAL_MACHINE, path, "PendingFileRenameOperations")
@@ -320,7 +323,7 @@ func registryValueNonEmptyOrUnreadable(root registry.Key, path, valueName string
 }
 
 // sccmRebootPending calls:
-//   ROOT\\CCM\\ClientSDK : CCM_ClientUtilities.DetermineIfRebootPending()
+//   ROOT\CCM\ClientSDK : CCM_ClientUtilities.DetermineIfRebootPending()
 // Returns (false, error) if SCCM client/WMI is not available.
 func sccmRebootPending() (bool, error) {
 	// COM apartment state is per-OS-thread. The Zabbix SDK may call Export()
@@ -372,7 +375,7 @@ func sccmRebootPending() (bool, error) {
 	defer loc.Release()
 
 	// Connect to local WMI namespace.
-	svcRaw, err := oleutil.CallMethod(loc, "ConnectServer", nil, `ROOT\\CCM\\ClientSDK`)
+	svcRaw, err := oleutil.CallMethod(loc, "ConnectServer", nil, `ROOT\CCM\ClientSDK`)
 	if err != nil {
 		return false, err
 	}
