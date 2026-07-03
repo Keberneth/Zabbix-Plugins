@@ -265,8 +265,10 @@ func marshalPowerShellJSON(apps []AppEntry) (string, error) {
 
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "    ")
-
+	// Compact output. The previous 4-space-indented + CRLF payload inflated the
+	// item value roughly 3x, so on hosts with many installed applications it could
+	// exceed Zabbix's TEXT value limit and be truncated into invalid JSON. JSON
+	// consumers (LLD / JSONPath preprocessing) ignore whitespace.
 	if err := enc.Encode(apps); err != nil {
 		return "", err
 	}
@@ -276,9 +278,6 @@ func marshalPowerShellJSON(apps []AppEntry) (string, error) {
 	if len(b) > 0 && b[len(b)-1] == '\n' {
 		b = b[:len(b)-1]
 	}
-
-	// PowerShell uses CRLF on Windows.
-	b = bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n"))
 
 	return string(b), nil
 }
