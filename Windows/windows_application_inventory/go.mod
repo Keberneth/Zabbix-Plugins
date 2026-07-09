@@ -3,8 +3,8 @@ module windows_application_inventory
 go 1.26.3
 
 require (
-	golang.org/x/sys v0.33.0
-	golang.zabbix.com/sdk v1.2.2-0.20251205121637-3b95c058c0e4
+	golang.org/x/sys v0.47.0
+	golang.zabbix.com/sdk v1.2.2-0.20260105091341-36ea4c1c90db
 )
 
 require (
