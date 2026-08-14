@@ -68,6 +68,7 @@ jobs:
           }
 
           # Windows plugins
+          add_plugin "Windows/exchange_se"                    "windows" "zabbix-agent2-exchange-se.exe"
           add_plugin "Windows/windows_ad_user_monitoring"     "windows" "zabbix-agent2-ad-user-monitoring.exe"
           add_plugin "Windows/windows_application_inventory"  "windows" "zabbix-agent2-application-inventory.exe"
           add_plugin "Windows/windows_failover_cluster"       "windows" "zabbix-agent2-windows-failover-cluster.exe"
@@ -228,8 +229,8 @@ jobs:
           path: artifacts
 
       - name: Install ClamAV
-        # Installed and freshclam-updated ONCE here instead of in every one of the
-        # 14 matrix build jobs, which each downloaded the full signature DB (~200 MB)
+        # Installed and freshclam-updated ONCE here instead of in every matrix
+        # build job, which each downloaded the full signature DB (~200 MB)
         # — a large, repeated waste of CI time and bandwidth.
         run: |
           sudo apt-get update
