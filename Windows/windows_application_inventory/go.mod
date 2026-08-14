@@ -1,10 +1,12 @@
 module windows_application_inventory
 
-go 1.26.3
+go 1.26
+
+toolchain go1.26.6
 
 require (
 	golang.org/x/sys v0.47.0
-	golang.zabbix.com/sdk v1.2.2-0.20260105091341-36ea4c1c90db
+	golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e
 )
 
 require (

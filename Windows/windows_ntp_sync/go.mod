@@ -1,10 +1,12 @@
 module windows_ntp_sync
 
-go 1.26.3
+go 1.26
+
+toolchain go1.26.6
 
 require (
 	github.com/beevik/ntp v1.5.0
-	golang.zabbix.com/sdk v1.2.2-0.20260105091341-36ea4c1c90db
+	golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e
 )
 
 require (

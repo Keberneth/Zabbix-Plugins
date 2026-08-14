@@ -1,0 +1,1646 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a23c9f3c42384b3ea9676e23fb9dcdf0
+      name: Templates
+  templates:
+    - uuid: 5bc59fc705594acbb9377afed72cfac8
+      template: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+      name: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+      description: |
+        Functional and health monitoring for Microsoft Exchange SE (Subscription Edition) Mailbox servers via the ExchangeSE Zabbix Agent 2 loadable Go plugin.
+
+        Covers: transport queues (including a dedicated "queue is growing and nothing is sent" trigger), transport back pressure, Exchange certificates, mailbox database and DAG copy health, backup age, Managed Availability health sets, Exchange services, server component states / maintenance mode, protocol health check pages (OWA, ECP, EWS, ActiveSync, Autodiscover, MAPI, OAB, RPC, PowerShell) and DAG replication health.
+
+        Requirements:
+        - zabbix-agent2-exchange-se.exe plugin deployed on the Exchange server (see zabbix-agent2-ExchangeSE.conf).
+        - Zabbix Agent 2 service running as LocalSystem on the Exchange server (default), or as a service account holding the View-Only Organization Management RBAC role.
+        - Complements the perf-counter based "Microsoft Exchange Server 2016 by Zabbix agent active" template; link both to the host for full coverage.
+
+        The plugin is strictly read-only. All alert thresholds and windows are adjustable via {$EXCH.*} macros, many with per-object context support (for example {$EXCH.DB.COPYQUEUE.MAX:"DB01"}).
+      vendor:
+        name: Keberneth
+        version: 7.0-1
+      groups:
+        - name: Templates
+      items:
+        - uuid: 3806c048c4844e5ba0f4fad43316bda5
+          name: 'Exchange SE server data JSON'
+          type: ZABBIX_ACTIVE
+          key: exchange.se.status
+          delay: '{$EXCH.COLLECT.INTERVAL}'
+          value_type: TEXT
+          trends: '0'
+          description: |
+            Master item returned by the ExchangeSE Go plugin.
+            The rest of the template uses dependent items and dependent discovery.
+            A full collection loads the Exchange Management Shell and can take 30-60 seconds.
+          timeout: 120s
+          triggers:
+            - uuid: 2916861458874f15bf4097cdd26dad7a
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.status,{$EXCH.NODATA.WINDOW})=1'
+              name: 'Exchange SE data collection stopped'
+              priority: AVERAGE
+              description: 'No Exchange JSON payload received within {$EXCH.NODATA.WINDOW}. Check the Zabbix Agent 2 service and run the plugin with --standalone on the server.'
+        - uuid: c7615c108402412d8633a58d99a48fea
+          name: 'Exchange SE Collection age'
+          type: DEPENDENT
+          key: exchange.se.collection.age
+          delay: '0'
+          units: s
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionAgeSeconds !== undefined && j.CollectionAgeSeconds !== null) ? j.CollectionAgeSeconds : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 52f9dc6a3c9143499451889f5daf00e4
+          name: 'Exchange SE Collection error'
+          type: DEPENDENT
+          key: exchange.se.collection.error
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionError !== undefined && j.CollectionError !== null) ? j.CollectionError : "";
+          master_item:
+            key: exchange.se.status
+        - uuid: 4bc96bbcc54a4597bdf42f2d36f7a317
+          name: 'Exchange SE Collection mode'
+          type: DEPENDENT
+          key: exchange.se.collection.mode
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.CollectionMode) ? j.CollectionMode : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 1abd69a0412941c19c821d1ea6989d7a
+          name: 'Exchange SE Collector partial errors'
+          type: DEPENDENT
+          key: exchange.se.collector.errors
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          description: 'Areas the collector could not read this cycle (one line per area). Empty when everything was collected.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  if (j && Array.isArray(j.Errors) && j.Errors.length) {
+                    return j.Errors.join("\n");
+                  }
+                  return "";
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: 618e81110487411f812dc45a765807c6
+              expression: 'length(last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.collector.errors))>0'
+              name: 'Exchange SE collector reported errors for some areas'
+              priority: WARNING
+              description: 'One or more collection areas failed (see the item value for details). Other metrics from failed areas may be missing or stale.'
+        - uuid: 7c2e7eb7fd894e4183cf07626de2b194
+          name: 'Exchange SE Version'
+          type: DEPENDENT
+          key: exchange.se.server.version
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.Version) ? j.Exchange.Version : null;
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: exchange.se.status
+        - uuid: ff28d96e5e5243f88910fb3c411c146e
+          name: 'Exchange SE Edition'
+          type: DEPENDENT
+          key: exchange.se.server.edition
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.Edition) ? j.Exchange.Edition : null;
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: exchange.se.status
+        - uuid: 768d08aae936487c8d30a8468691843f
+          name: 'Exchange SE Server roles'
+          type: DEPENDENT
+          key: exchange.se.server.roles
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.Roles) ? j.Exchange.Roles : null;
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: exchange.se.status
+        - uuid: 0636ee1ec7e74c45816b8f546bb30abe
+          name: 'Exchange SE AD site'
+          type: DEPENDENT
+          key: exchange.se.server.site
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.Site) ? j.Exchange.Site : null;
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: exchange.se.status
+        - uuid: 74750643126844b3b01ce947804635f4
+          name: 'Exchange SE DAG name'
+          type: DEPENDENT
+          key: exchange.se.server.dag
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          description: 'Empty when the server is not a DAG member.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.DagName !== undefined && j.Exchange.DagName !== null) ? j.Exchange.DagName : "";
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          master_item:
+            key: exchange.se.status
+        - uuid: 319b4b8e6c0043f2b22be0da8123ac5e
+          name: 'Exchange SE Maintenance mode'
+          type: DEPENDENT
+          key: exchange.se.server.maintenance
+          delay: '0'
+          description: 'Derived from the ServerWideOffline and HubTransport component states.'
+          valuemap:
+            name: 'Exchange SE yes/no'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Exchange && j.Exchange.MaintenanceMode !== undefined && j.Exchange.MaintenanceMode !== null) ? j.Exchange.MaintenanceMode : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: 9c9cea3cf209483a989629194b8fd6dc
+              expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.server.maintenance)=1'
+              name: 'Exchange SE server is in maintenance mode'
+              priority: INFO
+              manual_close: 'YES'
+              description: 'ServerWideOffline or HubTransport is not Active. Component and virtual directory alerts are suppressed while this is the case (see {$EXCH.ALERT.IN.MAINTENANCE}).'
+        - uuid: c68838048b35429ca31d512c1c5ebd8d
+          name: 'Exchange SE Mail queue: total depth'
+          type: DEPENDENT
+          key: exchange.se.queue.total.depth
+          delay: '0'
+          description: 'Sum of messages in all local transport queues, excluding shadow redundancy and poison queues.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueTotalDepth !== undefined && j.Summary.QueueTotalDepth !== null) ? j.Summary.QueueTotalDepth : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: ecc407d8122d4d54a1c89efec0ad588c
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.total.depth,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.DEPTH.HIGH}'
+              name: 'Exchange SE total mail queue depth is critically high'
+              opdata: 'depth: {ITEM.LASTVALUE1}'
+              priority: HIGH
+            - uuid: ae1aeba7d54c450fbaba737b83ac2c8a
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.total.depth,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.DEPTH.WARN}'
+              name: 'Exchange SE total mail queue depth is high'
+              opdata: 'depth: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              dependencies:
+                - name: 'Exchange SE total mail queue depth is critically high'
+                  expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.total.depth,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.DEPTH.HIGH}'
+        - uuid: 04115d2e6f2f4e1f9597c4fab8bf07c8
+          name: 'Exchange SE Mail queue: incoming rate'
+          type: DEPENDENT
+          key: exchange.se.queue.total.inrate
+          delay: '0'
+          value_type: FLOAT
+          description: 'Messages per minute entering the local transport queues (sum over non-shadow queues).'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueIncomingRate !== undefined && j.Summary.QueueIncomingRate !== null) ? j.Summary.QueueIncomingRate : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 0354535f313e4e2a964ad8485deb1edf
+          name: 'Exchange SE Mail queue: outgoing rate'
+          type: DEPENDENT
+          key: exchange.se.queue.total.outrate
+          delay: '0'
+          value_type: FLOAT
+          description: 'Messages per minute leaving the local transport queues (sum over non-shadow queues). Sustained 0 while the queue has depth means mail is not being delivered.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueOutgoingRate !== undefined && j.Summary.QueueOutgoingRate !== null) ? j.Summary.QueueOutgoingRate : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 3ac7efd459974b47815d5571bbdd868e
+          name: 'Exchange SE Mail queue: queues in retry'
+          type: DEPENDENT
+          key: exchange.se.queue.retry.count
+          delay: '0'
+          description: 'Number of non-shadow queues in Retry status. The problem queues detail item lists them with their last error.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueRetryCount !== undefined && j.Summary.QueueRetryCount !== null) ? j.Summary.QueueRetryCount : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: 76c2e9f2d92e4ef59fb40928cfb15d6b
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.retry.count,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.RETRY.MAX}'
+              name: 'Exchange SE mail queues are in Retry status'
+              opdata: 'queues in retry: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: 'One or more delivery queues cannot connect to their next hop. Check the "Mail queue: problem queues detail" item for the queue names and last errors.'
+        - uuid: ab5c6c91c5ce47b480e3d373754a34e9
+          name: 'Exchange SE Mail queue: submission queue depth'
+          type: DEPENDENT
+          key: exchange.se.queue.submission.depth
+          delay: '0'
+          description: 'Messages waiting for the categorizer. A sustained high submission queue usually means transport is stuck or under back pressure.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueSubmissionDepth !== undefined && j.Summary.QueueSubmissionDepth !== null) ? j.Summary.QueueSubmissionDepth : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: 6d163b41b57f4b9da9c6d7315b6b636f
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.submission.depth,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.SUBMISSION.MAX}'
+              name: 'Exchange SE submission queue depth is high'
+              opdata: 'depth: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+        - uuid: 79792ea233494367a8af10b4b27f4f7e
+          name: 'Exchange SE Mail queue: poison queue depth'
+          type: DEPENDENT
+          key: exchange.se.queue.poison.depth
+          delay: '0'
+          description: 'Messages detected as harmful to the transport pipeline. These never leave by themselves and need manual review.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueuePoisonDepth !== undefined && j.Summary.QueuePoisonDepth !== null) ? j.Summary.QueuePoisonDepth : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: ea77ae3c03da4156b7c9eab67a5eb0fd
+              expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.poison.depth)>{$EXCH.QUEUE.POISON.MAX}'
+              name: 'Exchange SE poison queue has messages'
+              opdata: 'messages: {ITEM.LASTVALUE1}'
+              priority: WARNING
+        - uuid: 6bdee40db1db472bb57de615684b793f
+          name: 'Exchange SE Mail queue: unreachable queue depth'
+          type: DEPENDENT
+          key: exchange.se.queue.unreachable.depth
+          delay: '0'
+          description: 'Messages that have no valid route. Usually caused by connector or routing configuration problems.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueUnreachableDepth !== undefined && j.Summary.QueueUnreachableDepth !== null) ? j.Summary.QueueUnreachableDepth : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: ee452dddccf54c23ba06f1fbf7a40e10
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.unreachable.depth,{$EXCH.QUEUE.PROBLEM.WINDOW})>{$EXCH.QUEUE.UNREACHABLE.MAX}'
+              name: 'Exchange SE unreachable queue has messages'
+              opdata: 'messages: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+        - uuid: 14861f0a8d864de49a68dfd2b570bbd3
+          name: 'Exchange SE Mail queue: shadow queue depth'
+          type: DEPENDENT
+          key: exchange.se.queue.shadow.depth
+          delay: '0'
+          description: 'Shadow redundancy copies of messages being processed by other servers. Informational; excluded from the alerting totals.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.QueueShadowDepth !== undefined && j.Summary.QueueShadowDepth !== null) ? j.Summary.QueueShadowDepth : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 89005d2134aa41aa980ecf187f876526
+          name: 'Exchange SE Mail queue: problem queues detail'
+          type: DEPENDENT
+          key: exchange.se.queue.problem.detail
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          description: 'Human-readable list of non-empty, retrying or suspended queues with their last error. "OK" when there is nothing to report.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var lines = [];
+                  if (j && Array.isArray(j.Queues)) {
+                    for (var i = 0; i < j.Queues.length; i++) {
+                      var q = j.Queues[i];
+                      if (!q || q.IsShadow === 1) continue;
+                      var status = q.Status || "";
+                      if (status !== "Retry" && status !== "Suspended" && !(q.MessageCount > 0)) continue;
+                      var line = (q.Identity || "?") + " [" + status + "] count=" + q.MessageCount + " nexthop=" + (q.NextHopDomain || "-");
+                      if (q.LastError) line += " lastError=" + q.LastError;
+                      lines.push(line);
+                    }
+                  }
+                  if (j && j.Summary && j.Summary.QueueListTruncated === 1) lines.push("(queue list truncated)");
+                  return lines.length ? lines.join("\n") : "OK";
+          master_item:
+            key: exchange.se.status
+        - uuid: 0ba8d8aa5c4f4c618f50c0a1692a4638
+          name: 'Exchange SE Services not running (count)'
+          type: DEPENDENT
+          key: exchange.se.services.notrunning.count
+          delay: '0'
+          description: 'Automatic-start Exchange related services that are not running. Per-service triggers come from service discovery.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.ServicesNotRunning !== undefined && j.Summary.ServicesNotRunning !== null) ? j.Summary.ServicesNotRunning : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 60983e40665d47d09249a6454d736fc4
+          name: 'Exchange SE Services not running (detail)'
+          type: DEPENDENT
+          key: exchange.se.services.notrunning.detail
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var lines = [];
+                  if (j && Array.isArray(j.Services)) {
+                    for (var i = 0; i < j.Services.length; i++) {
+                      var s = j.Services[i];
+                      if (!s || s.AutoStart !== 1 || s.Running === 1) continue;
+                      lines.push(s.Name + " (" + (s.DisplayName || s.Name) + "): " + (s.Status || "unknown"));
+                    }
+                  }
+                  return lines.length ? lines.join("\n") : "OK";
+          master_item:
+            key: exchange.se.status
+        - uuid: a0e218c673d4479185ded2f6f26aa2fd
+          name: 'Exchange SE Components inactive (count)'
+          type: DEPENDENT
+          key: exchange.se.components.inactive.count
+          delay: '0'
+          description: 'Server components not in Active state, excluding ForwardSyncDaemon and ProvisioningRps which are inactive by default on-premises.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.ComponentsInactive !== undefined && j.Summary.ComponentsInactive !== null) ? j.Summary.ComponentsInactive : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 4ba40505a8604f61b2c20a252eb05555
+          name: 'Exchange SE Health sets unhealthy (count)'
+          type: DEPENDENT
+          key: exchange.se.health.unhealthy.count
+          delay: '0'
+          description: 'Managed Availability health sets currently reporting Unhealthy.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.HealthSetsUnhealthy !== undefined && j.Summary.HealthSetsUnhealthy !== null) ? j.Summary.HealthSetsUnhealthy : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: a753303b6abf46c28c411f6b95d647e2
+          name: 'Exchange SE Health sets unhealthy (detail)'
+          type: DEPENDENT
+          key: exchange.se.health.unhealthy.detail
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var names = [];
+                  if (j && Array.isArray(j.HealthSets)) {
+                    for (var i = 0; i < j.HealthSets.length; i++) {
+                      var h = j.HealthSets[i];
+                      if (h && h.AlertRaw === 0) names.push(h.Name);
+                    }
+                  }
+                  return names.length ? names.join(", ") : "OK";
+          master_item:
+            key: exchange.se.status
+        - uuid: 2d04be69a5214ebfaac6f6d55bf0cd5f
+          name: 'Exchange SE Transport back pressure'
+          type: DEPENDENT
+          key: exchange.se.backpressure.state
+          delay: '0'
+          description: 'Worst resource pressure level reported by the transport ResourceThrottling diagnostics. Under Medium/High pressure Exchange starts rejecting or throttling mail flow.'
+          valuemap:
+            name: 'Exchange SE back pressure'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.BackPressure && j.BackPressure.StateRaw !== undefined && j.BackPressure.StateRaw !== null) ? j.BackPressure.StateRaw : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: 407a198b426646b6a1cff2ff53eb8ddc
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.backpressure.state,{$EXCH.BP.PROBLEM.WINDOW})=2'
+              name: 'Exchange SE transport back pressure is High'
+              priority: HIGH
+              description: 'Transport is rejecting new mail because a resource (disk space, memory, queue database) is critically constrained. See the back pressure detail item for the exact resource.'
+            - uuid: ca19e8f7bb204eb4bb0634a6130e5411
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.backpressure.state,{$EXCH.BP.PROBLEM.WINDOW})>=1'
+              name: 'Exchange SE transport is under back pressure'
+              priority: WARNING
+              description: 'Transport is throttling mail flow due to resource pressure. See the back pressure detail item for the exact resource.'
+              dependencies:
+                - name: 'Exchange SE transport back pressure is High'
+                  expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.backpressure.state,{$EXCH.BP.PROBLEM.WINDOW})=2'
+        - uuid: 32694ae90fb44ec4af465dfd6c1b276c
+          name: 'Exchange SE Transport back pressure detail'
+          type: DEPENDENT
+          key: exchange.se.backpressure.detail
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var lines = [];
+                  if (j && j.BackPressure && Array.isArray(j.BackPressure.Resources)) {
+                    for (var i = 0; i < j.BackPressure.Resources.length; i++) {
+                      var r = j.BackPressure.Resources[i];
+                      if (!r || !r.Current || r.Current === "Low") continue;
+                      lines.push(r.Resource + " = " + r.Current + (r.Previous ? " (was " + r.Previous + ")" : ""));
+                    }
+                  }
+                  return lines.length ? lines.join("\n") : "OK";
+          master_item:
+            key: exchange.se.status
+        - uuid: f6993ef68a51465c8f934e632bceb411
+          name: 'Exchange SE Replication health failed checks'
+          type: DEPENDENT
+          key: exchange.se.replication.failed.count
+          delay: '0'
+          description: 'Number of failed Test-ReplicationHealth checks. Always 0 on servers that are not DAG members.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.ReplicationChecksFailed !== undefined && j.Summary.ReplicationChecksFailed !== null) ? j.Summary.ReplicationChecksFailed : null;
+          master_item:
+            key: exchange.se.status
+          triggers:
+            - uuid: faee646677984a62b57a1586dda9512b
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.replication.failed.count,{$EXCH.REPL.PROBLEM.WINDOW})>0'
+              name: 'Exchange SE DAG replication health checks are failing'
+              opdata: 'failed checks: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+              description: 'See the replication health detail item for the failing checks and errors.'
+        - uuid: d804a39ab9a44a6ea74b3b7b8ce76ad8
+          name: 'Exchange SE Replication health detail'
+          type: DEPENDENT
+          key: exchange.se.replication.detail
+          delay: '0'
+          value_type: TEXT
+          trends: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var lines = [];
+                  if (j && Array.isArray(j.ReplicationHealth)) {
+                    for (var i = 0; i < j.ReplicationHealth.length; i++) {
+                      var r = j.ReplicationHealth[i];
+                      if (!r || r.IsFailed !== 1) continue;
+                      lines.push(r.Check + ": " + (r.Error || r.Result || "failed"));
+                    }
+                  }
+                  return lines.length ? lines.join("\n") : "OK";
+          master_item:
+            key: exchange.se.status
+        - uuid: 7ff41159a37441fead788cc90fc6ef33
+          name: 'Exchange SE Certificate minimum days remaining'
+          type: DEPENDENT
+          key: exchange.se.cert.min.days
+          delay: '0'
+          value_type: FLOAT
+          description: 'Smallest days-to-expiry over all Exchange certificates on this server. Per-certificate triggers come from certificate discovery.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.CertMinDaysRemaining !== undefined && j.Summary.CertMinDaysRemaining !== null) ? j.Summary.CertMinDaysRemaining : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 698a89d51e4441b8bd621a79ba609c3f
+          name: 'Exchange SE Database copies unhealthy (count)'
+          type: DEPENDENT
+          key: exchange.se.dbcopies.unhealthy.count
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.DbCopiesUnhealthy !== undefined && j.Summary.DbCopiesUnhealthy !== null) ? j.Summary.DbCopiesUnhealthy : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 7ab3d2ef53134f23a841c74d1d203ea7
+          name: 'Exchange SE Vdir health checks failing (count)'
+          type: DEPENDENT
+          key: exchange.se.vdirs.unhealthy.count
+          delay: '0'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  return (j && j.Summary && j.Summary.VdirsUnhealthy !== undefined && j.Summary.VdirsUnhealthy !== null) ? j.Summary.VdirsUnhealthy : null;
+          master_item:
+            key: exchange.se.status
+        - uuid: 9a46885a38864435a6910ac71a8ee7b1
+          name: 'Exchange SE Back pressure: resource pressure increased (ID15004)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[Application,,,MSExchangeTransport,^15004$]'
+          delay: '{$EXCH.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 9513c418ce854142bbe941d635c526a9
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/eventlog[Application,,,MSExchangeTransport,^15004$],{$EXCH.EVENTLOG.WINDOW})=0'
+              name: 'Exchange SE transport resource pressure increased (ID15004)'
+              priority: WARNING
+        - uuid: 1aba04e7369b4f8eabfca0879f29a838
+          name: 'Exchange SE Back pressure: disk space critically low (ID15006)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[Application,,,MSExchangeTransport,^15006$]'
+          delay: '{$EXCH.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 299b78a31b4f411ab1e7a6e1491458d7
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/eventlog[Application,,,MSExchangeTransport,^15006$],{$EXCH.EVENTLOG.WINDOW})=0'
+              name: 'Exchange SE transport disk space critically low (ID15006)'
+              priority: HIGH
+        - uuid: f8dd75c0b4794461ac0c81e624f89bdf
+          name: 'Exchange SE Back pressure: memory critically low (ID15007)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[Application,,,MSExchangeTransport,^15007$]'
+          delay: '{$EXCH.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: abccdb036f8049ae86a6a47d40130c0c
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/eventlog[Application,,,MSExchangeTransport,^15007$],{$EXCH.EVENTLOG.WINDOW})=0'
+              name: 'Exchange SE transport memory critically low (ID15007)'
+              priority: HIGH
+        - uuid: 25d16a5f23354790bffda3969457a711
+          name: 'Exchange SE Database page checksum error (ESE 474)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[Application,,,ESE,^474$]'
+          delay: '{$EXCH.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: cc2e1eaad3224075ae28df946335d3d2
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/eventlog[Application,,,ESE,^474$],{$EXCH.EVENTLOG.WINDOW})=0'
+              name: 'Exchange SE database page checksum mismatch detected (ESE 474)'
+              priority: HIGH
+              description: 'Possible physical database corruption. Investigate the storage layer and consider reseeding the affected database copy.'
+        - uuid: d2690fc9677a4c40bd1a8ad84b1a1321
+          name: 'Exchange SE Database logical corruption (ESE 447)'
+          type: ZABBIX_ACTIVE
+          key: 'eventlog[Application,,,ESE,^447$]'
+          delay: '{$EXCH.EVENTLOG.INTERVAL}'
+          value_type: LOG
+          trends: '0'
+          triggers:
+            - uuid: 10259bd25729494bbb8f873c8abaf393
+              expression: 'nodata(/Microsoft Exchange SE by Zabbix Agent 2 Active/eventlog[Application,,,ESE,^447$],{$EXCH.EVENTLOG.WINDOW})=0'
+              name: 'Exchange SE database logical corruption detected (ESE 447)'
+              priority: HIGH
+      discovery_rules:
+        - uuid: 369080620bf5438c80257dbe4935d850
+          name: 'Exchange SE service discovery'
+          type: DEPENDENT
+          key: exchange.se.services.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#SERVICE.NAME}'
+                value: '{$EXCH.SERVICE.EXCLUDE.MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+          description: 'Discovers automatic-start Exchange related Windows services from the plugin JSON.'
+          item_prototypes:
+            - uuid: e3aab1a6457d44dfb7a6990130310c38
+              name: 'Exchange SE Service "{#SERVICE.DISPLAYNAME}" running'
+              type: DEPENDENT
+              key: 'exchange.se.service.running["{#SERVICE.NAME}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE running state'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#SERVICE.NAME}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Services)) {
+                        for (var i = 0; i < j.Services.length; i++) {
+                          var s = j.Services[i];
+                          if (s && s.Name === name) {
+                            return (s.Running !== undefined && s.Running !== null) ? s.Running : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: aefe07652ca9428c942116737f0990b3
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.service.running["{#SERVICE.NAME}"],{$EXCH.SERVICE.PROBLEM.WINDOW})=0'
+              name: 'Exchange SE service "{#SERVICE.DISPLAYNAME}" is not running'
+              priority: HIGH
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Services)) {
+                    for (var i = 0; i < j.Services.length; i++) {
+                      var s = j.Services[i];
+                      if (!s || !s.Name || s.AutoStart !== 1) continue;
+                      data.push({
+                        "{#SERVICE.NAME}": s.Name,
+                        "{#SERVICE.DISPLAYNAME}": s.DisplayName || s.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 6a10efcca1464c54bb2bfb25c20ee995
+          name: 'Exchange SE component discovery'
+          type: DEPENDENT
+          key: exchange.se.components.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#COMPONENT}'
+                value: '{$EXCH.COMPONENT.EXCLUDE.MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+          description: 'Discovers Exchange server components (Get-ServerComponentState). ForwardSyncDaemon and ProvisioningRps are excluded by default because they are Inactive on-premises by design.'
+          item_prototypes:
+            - uuid: b915a684a9924568bf2fb85caa550bde
+              name: 'Exchange SE Component "{#COMPONENT}" state'
+              type: DEPENDENT
+              key: 'exchange.se.component.state["{#COMPONENT}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE component state'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#COMPONENT}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Components)) {
+                        for (var i = 0; i < j.Components.length; i++) {
+                          var c = j.Components[i];
+                          if (c && c.Name === name) {
+                            return (c.StateRaw !== undefined && c.StateRaw !== null) ? c.StateRaw : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: 87da6740be2d4f4c934da879032bd86f
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.component.state["{#COMPONENT}"],{$EXCH.COMPONENT.PROBLEM.WINDOW})=0 and ({$EXCH.ALERT.IN.MAINTENANCE}=1 or last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.server.maintenance)=0)'
+              name: 'Exchange SE component "{#COMPONENT}" is Inactive'
+              priority: AVERAGE
+              description: 'The component has been Inactive for the whole problem window and the server is not in maintenance mode.'
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Components)) {
+                    for (var i = 0; i < j.Components.length; i++) {
+                      var c = j.Components[i];
+                      if (!c || !c.Name) continue;
+                      data.push({
+                        "{#COMPONENT}": c.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 2598bd7c6f6942bdac4787176264b6f0
+          name: 'Exchange SE certificate discovery'
+          type: DEPENDENT
+          key: exchange.se.certs.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#SUBJECT}'
+                value: '{$EXCH.CERT.EXCLUDE.MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+              - macro: '{#SERVICES}'
+                value: '{$EXCH.CERT.SERVICES.MATCHES}'
+                formulaid: B
+          description: 'Discovers all Exchange certificates on the server, including self-signed and the OAuth auth certificate (an expired auth certificate breaks OWA/ECP logons). Use {$EXCH.CERT.EXCLUDE.MATCHES} or {$EXCH.CERT.SERVICES.MATCHES} to narrow the set.'
+          item_prototypes:
+            - uuid: c9d66976832146c3aeffe53061ac9db0
+              name: 'Exchange SE Certificate "{#SUBJECT}": days remaining'
+              type: DEPENDENT
+              key: 'exchange.se.cert.days["{#THUMBPRINT}"]'
+              delay: '0'
+              value_type: FLOAT
+              description: 'Negative when the certificate is already expired. Thumbprint: {#THUMBPRINT}, services: {#SERVICES}.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var thumbprint = "{#THUMBPRINT}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Certificates)) {
+                        for (var i = 0; i < j.Certificates.length; i++) {
+                          var c = j.Certificates[i];
+                          if (c && c.Thumbprint === thumbprint) {
+                            return (c.DaysRemaining !== undefined && c.DaysRemaining !== null) ? c.DaysRemaining : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 5336644dc4704ac486c886dacd401013
+              name: 'Exchange SE Certificate "{#SUBJECT}": expires'
+              type: DEPENDENT
+              key: 'exchange.se.cert.notafter["{#THUMBPRINT}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var thumbprint = "{#THUMBPRINT}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Certificates)) {
+                        for (var i = 0; i < j.Certificates.length; i++) {
+                          var c = j.Certificates[i];
+                          if (c && c.Thumbprint === thumbprint) {
+                            return c.NotAfter || null;
+                          }
+                        }
+                      }
+                      return null;
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: exchange.se.status
+            - uuid: b80b69d753c44fb2bfda3bc96bd997d1
+              name: 'Exchange SE Certificate "{#SUBJECT}": bound services'
+              type: DEPENDENT
+              key: 'exchange.se.cert.services["{#THUMBPRINT}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var thumbprint = "{#THUMBPRINT}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Certificates)) {
+                        for (var i = 0; i < j.Certificates.length; i++) {
+                          var c = j.Certificates[i];
+                          if (c && c.Thumbprint === thumbprint) {
+                            return (c.Services !== undefined && c.Services !== null) ? c.Services : "";
+                          }
+                        }
+                      }
+                      return null;
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: afb5b14493b442b58ce906a6e3ce700a
+              expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.cert.days["{#THUMBPRINT}"])<{$EXCH.CERT.CRIT.DAYS:"{#THUMBPRINT}"}'
+              name: 'Exchange SE certificate "{#SUBJECT}" expires in less than {$EXCH.CERT.CRIT.DAYS:"{#THUMBPRINT}"} days'
+              opdata: 'days remaining: {ITEM.LASTVALUE1}'
+              priority: HIGH
+              description: 'Services: {#SERVICES}. Thumbprint: {#THUMBPRINT}. Renew the certificate now; an expired certificate bound to IIS or SMTP breaks client access and mail flow.'
+            - uuid: 0e427504d1eb48c281c5f34cc7fea7e7
+              expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.cert.days["{#THUMBPRINT}"])<{$EXCH.CERT.WARN.DAYS:"{#THUMBPRINT}"}'
+              name: 'Exchange SE certificate "{#SUBJECT}" expires in less than {$EXCH.CERT.WARN.DAYS:"{#THUMBPRINT}"} days'
+              opdata: 'days remaining: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: 'Services: {#SERVICES}. Thumbprint: {#THUMBPRINT}.'
+              dependencies:
+                - name: 'Exchange SE certificate "{#SUBJECT}" expires in less than {$EXCH.CERT.CRIT.DAYS:"{#THUMBPRINT}"} days'
+                  expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.cert.days["{#THUMBPRINT}"])<{$EXCH.CERT.CRIT.DAYS:"{#THUMBPRINT}"}'
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Certificates)) {
+                    for (var i = 0; i < j.Certificates.length; i++) {
+                      var c = j.Certificates[i];
+                      if (!c || !c.Thumbprint) continue;
+                      data.push({
+                        "{#THUMBPRINT}": c.Thumbprint,
+                        "{#SUBJECT}": c.Subject || c.Thumbprint,
+                        "{#SERVICES}": c.Services || "",
+                        "{#SELFSIGNED}": c.IsSelfSigned
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 54b009dbd981464982a9b1ecfee60afd
+          name: 'Exchange SE database copy discovery'
+          type: DEPENDENT
+          key: exchange.se.dbcopy.discovery
+          delay: '0'
+          description: 'Discovers mailbox database copies hosted on this server (Get-MailboxDatabaseCopyStatus). Works for standalone servers and DAG members.'
+          item_prototypes:
+            - uuid: 0d65202bc3614c26ab2fbf804f4b6a9b
+              name: 'Exchange SE DB copy "{#DATABASE}": healthy'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.healthy["{#DATABASE}"]'
+              delay: '0'
+              description: '1 when the copy status is Mounted or Healthy.'
+              valuemap:
+                name: 'Exchange SE yes/no'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return (c.IsHealthy !== undefined && c.IsHealthy !== null) ? c.IsHealthy : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 090cd66a28a04b2a811312c6cff54bf5
+              name: 'Exchange SE DB copy "{#DATABASE}": status'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.status["{#DATABASE}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return c.Status || null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 54a0b7f8081d4070a09047d5f2a0eca3
+              name: 'Exchange SE DB copy "{#DATABASE}": is active copy'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.active["{#DATABASE}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE yes/no'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return (c.IsActive !== undefined && c.IsActive !== null) ? c.IsActive : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 7745e3164e9143a2ac2a89536260d717
+              name: 'Exchange SE DB copy "{#DATABASE}": copy queue length'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.copyqueue["{#DATABASE}"]'
+              delay: '0'
+              description: 'Log files waiting to be shipped to this copy. Growing values mean replication is falling behind.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return (c.CopyQueueLength !== undefined && c.CopyQueueLength !== null) ? c.CopyQueueLength : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 689e801b04b24a5ebfe1024eadf7bc7a
+              name: 'Exchange SE DB copy "{#DATABASE}": replay queue length'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.replayqueue["{#DATABASE}"]'
+              delay: '0'
+              description: 'Log files copied but not yet replayed into this passive copy. For lagged copies raise {$EXCH.DB.REPLAYQUEUE.MAX:"{#DATABASE}"}.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return (c.ReplayQueueLength !== undefined && c.ReplayQueueLength !== null) ? c.ReplayQueueLength : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 170e2bb096f24e33bf4107cf233bb135
+              name: 'Exchange SE DB copy "{#DATABASE}": content index state'
+              type: DEPENDENT
+              key: 'exchange.se.dbcopy.indexstate["{#DATABASE}"]'
+              delay: '0'
+              value_type: TEXT
+              trends: '0'
+              description: 'NotApplicable is normal on Exchange SE / 2019 (BigFunnel search inside the database).'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.DatabaseCopies)) {
+                        for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                          var c = j.DatabaseCopies[i];
+                          if (c && c.Database === name) {
+                            return (c.ContentIndexState !== undefined && c.ContentIndexState !== null) ? c.ContentIndexState : "";
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: d05a097fce944babb07cdd0c2192aa68
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.healthy["{#DATABASE}"],{$EXCH.DB.PROBLEM.WINDOW})=0 and last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.active["{#DATABASE}"])=1'
+              name: 'Exchange SE database "{#DATABASE}" is not mounted'
+              opdata: 'status: {ITEM.LASTVALUE1}'
+              priority: DISASTER
+              description: 'The active copy of this database is dismounted or failing. Mailboxes on it are offline.'
+            - uuid: 7794291709f04725abc2a464647b9f0f
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.healthy["{#DATABASE}"],{$EXCH.DB.PROBLEM.WINDOW})=0 and last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.active["{#DATABASE}"])=0'
+              name: 'Exchange SE database copy "{#COPYNAME}" is not healthy'
+              priority: HIGH
+              description: 'The passive copy is Failed, Suspended, Resynchronizing or otherwise not Healthy. Long reseeds also match; adjust {$EXCH.DB.PROBLEM.WINDOW} or close manually while a reseed runs.'
+            - uuid: 412196e1b6fb421097f31bd51689859e
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.copyqueue["{#DATABASE}"],{$EXCH.DB.QUEUE.PROBLEM.WINDOW})>{$EXCH.DB.COPYQUEUE.MAX:"{#DATABASE}"}'
+              name: 'Exchange SE database "{#DATABASE}" copy queue length is high'
+              opdata: 'copy queue: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+            - uuid: c5ffa09d8cb046ccb7e26c66df315154
+              expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.replayqueue["{#DATABASE}"],{$EXCH.DB.QUEUE.PROBLEM.WINDOW})>{$EXCH.DB.REPLAYQUEUE.MAX:"{#DATABASE}"}'
+              name: 'Exchange SE database "{#DATABASE}" replay queue length is high'
+              opdata: 'replay queue: {ITEM.LASTVALUE1}'
+              priority: WARNING
+            - uuid: 68259a02a082410f9c4dfb99270633df
+              expression: 'count(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.indexstate["{#DATABASE}"],{$EXCH.DB.INDEX.PROBLEM.WINDOW},"regexp","^(Healthy|NotApplicable|Unknown)?$")=0 and count(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.dbcopy.indexstate["{#DATABASE}"],{$EXCH.DB.INDEX.PROBLEM.WINDOW})>0'
+              name: 'Exchange SE database "{#DATABASE}" content index is not healthy'
+              opdata: 'state: {ITEM.LASTVALUE1}'
+              priority: WARNING
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.DatabaseCopies)) {
+                    for (var i = 0; i < j.DatabaseCopies.length; i++) {
+                      var c = j.DatabaseCopies[i];
+                      if (!c || !c.Database) continue;
+                      data.push({
+                        "{#DATABASE}": c.Database,
+                        "{#COPYNAME}": c.Name || c.Database
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: 2337c65254c64ec6a070a6a6cd87c911
+          name: 'Exchange SE database discovery'
+          type: DEPENDENT
+          key: exchange.se.db.discovery
+          delay: '0'
+          description: 'Discovers mailbox databases whose active copy is mounted on this server (size, whitespace, backup age, circular logging). In a DAG each database is reported by the server currently holding the active copy, so backup alerts are not duplicated.'
+          item_prototypes:
+            - uuid: ca71f09ea02a4afdbb8c1e388d9a2e74
+              name: 'Exchange SE DB "{#DATABASE}": mounted'
+              type: DEPENDENT
+              key: 'exchange.se.db.mounted["{#DATABASE}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE yes/no'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Databases)) {
+                        for (var i = 0; i < j.Databases.length; i++) {
+                          var d = j.Databases[i];
+                          if (d && d.Name === name) {
+                            return (d.Mounted !== undefined && d.Mounted !== null) ? d.Mounted : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: b7c2d528557049c6a39c7ac8b435143c
+              name: 'Exchange SE DB "{#DATABASE}": size'
+              type: DEPENDENT
+              key: 'exchange.se.db.size["{#DATABASE}"]'
+              delay: '0'
+              units: B
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Databases)) {
+                        for (var i = 0; i < j.Databases.length; i++) {
+                          var d = j.Databases[i];
+                          if (d && d.Name === name) {
+                            return (d.SizeBytes !== undefined && d.SizeBytes !== null) ? d.SizeBytes : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 875e2686017f45b9bf0590a9efd500c6
+              name: 'Exchange SE DB "{#DATABASE}": available new mailbox space'
+              type: DEPENDENT
+              key: 'exchange.se.db.whitespace["{#DATABASE}"]'
+              delay: '0'
+              units: B
+              description: 'Reusable whitespace inside the database file.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Databases)) {
+                        for (var i = 0; i < j.Databases.length; i++) {
+                          var d = j.Databases[i];
+                          if (d && d.Name === name) {
+                            return (d.AvailableNewMailboxSpaceBytes !== undefined && d.AvailableNewMailboxSpaceBytes !== null) ? d.AvailableNewMailboxSpaceBytes : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 13ff16d5e60b424583c6a334b1b365c6
+              name: 'Exchange SE DB "{#DATABASE}": hours since last full backup'
+              type: DEPENDENT
+              key: 'exchange.se.db.backupage["{#DATABASE}"]'
+              delay: '0'
+              value_type: FLOAT
+              description: '-1 when the database has never had a full backup.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Databases)) {
+                        for (var i = 0; i < j.Databases.length; i++) {
+                          var d = j.Databases[i];
+                          if (d && d.Name === name) {
+                            return (d.LastFullBackupAgeHours !== undefined && d.LastFullBackupAgeHours !== null) ? d.LastFullBackupAgeHours : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 4db98c9970024a7ca19061e409c95ecf
+              name: 'Exchange SE DB "{#DATABASE}": circular logging enabled'
+              type: DEPENDENT
+              key: 'exchange.se.db.circular["{#DATABASE}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE yes/no'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#DATABASE}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Databases)) {
+                        for (var i = 0; i < j.Databases.length; i++) {
+                          var d = j.Databases[i];
+                          if (d && d.Name === name) {
+                            return (d.CircularLogging !== undefined && d.CircularLogging !== null) ? d.CircularLogging : null;
+                          }
+                        }
+                      }
+                      return null;
+                - type: DISCARD_UNCHANGED_HEARTBEAT
+                  parameters:
+                    - 1d
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: ee9f26b185b946c19f8bd81717a90439
+              expression: '{$EXCH.BACKUP.ALERT:"{#DATABASE}"}=1 and last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.db.backupage["{#DATABASE}"])>{$EXCH.BACKUP.MAX.AGE.HOURS:"{#DATABASE}"}'
+              name: 'Exchange SE database "{#DATABASE}" has not had a full backup for more than {$EXCH.BACKUP.MAX.AGE.HOURS:"{#DATABASE}"} hours'
+              opdata: 'hours since full backup: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: 'Without backups the transaction logs are only truncated when circular logging is enabled, and the log volume will eventually fill up. Set {$EXCH.BACKUP.ALERT:"{#DATABASE}"} to 0 to disable this alert for individual databases.'
+            - uuid: e4f1f8ab942e495495000d9ffb129056
+              expression: '{$EXCH.BACKUP.ALERT:"{#DATABASE}"}=1 and last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.db.backupage["{#DATABASE}"])=-1'
+              name: 'Exchange SE database "{#DATABASE}" has never had a full backup'
+              priority: INFO
+              manual_close: 'YES'
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Databases)) {
+                    for (var i = 0; i < j.Databases.length; i++) {
+                      var d = j.Databases[i];
+                      if (!d || !d.Name || d.IsLocalActive !== 1) continue;
+                      data.push({
+                        "{#DATABASE}": d.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: a75e1e17b9c74decaf1867721597c3e2
+          name: 'Exchange SE health set discovery'
+          type: DEPENDENT
+          key: exchange.se.healthset.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#HEALTHSET}'
+                value: '{$EXCH.HEALTHSET.EXCLUDE.MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+          description: 'Discovers Managed Availability health sets (Get-HealthReport). Exclude noisy health sets with {$EXCH.HEALTHSET.EXCLUDE.MATCHES}.'
+          item_prototypes:
+            - uuid: 1c77db17a7004358a81ec8caadcec34e
+              name: 'Exchange SE Health set "{#HEALTHSET}" state'
+              type: DEPENDENT
+              key: 'exchange.se.healthset.state["{#HEALTHSET}"]'
+              delay: '0'
+              valuemap:
+                name: 'Exchange SE health set state'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#HEALTHSET}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.HealthSets)) {
+                        for (var i = 0; i < j.HealthSets.length; i++) {
+                          var h = j.HealthSets[i];
+                          if (h && h.Name === name) {
+                            return (h.AlertRaw !== undefined && h.AlertRaw !== null) ? h.AlertRaw : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: b21eba4ea7f24b63b5ef81c822941599
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.healthset.state["{#HEALTHSET}"],{$EXCH.HEALTHSET.PROBLEM.WINDOW})=0'
+              name: 'Exchange SE health set "{#HEALTHSET}" is unhealthy'
+              priority: WARNING
+              description: 'The Managed Availability health set has reported Unhealthy for the whole problem window. Run Get-ServerHealth -Identity <server> -HealthSet {#HEALTHSET} for the failing monitors.'
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.HealthSets)) {
+                    for (var i = 0; i < j.HealthSets.length; i++) {
+                      var h = j.HealthSets[i];
+                      if (!h || !h.Name) continue;
+                      data.push({
+                        "{#HEALTHSET}": h.Name
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+        - uuid: fdcbfed21e3b4386a5827e0b8beefb7c
+          name: 'Exchange SE virtual directory discovery'
+          type: DEPENDENT
+          key: exchange.se.vdir.discovery
+          delay: '0'
+          filter:
+            conditions:
+              - macro: '{#PROTOCOL}'
+                value: '{$EXCH.VDIR.EXCLUDE.MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+          description: 'Discovers local protocol health check pages (https://localhost/<vdir>/healthcheck.htm): OWA, ECP, EWS, ActiveSync, Autodiscover, MAPI, OAB, RPC and PowerShell.'
+          item_prototypes:
+            - uuid: 2d92731fb1464ae2a4996842ee71124e
+              name: 'Exchange SE Vdir "{#PROTOCOL}" healthy'
+              type: DEPENDENT
+              key: 'exchange.se.vdir.healthy["{#PROTOCOL}"]'
+              delay: '0'
+              description: '1 when the local healthcheck.htm probe returned HTTP 200.'
+              valuemap:
+                name: 'Exchange SE yes/no'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#PROTOCOL}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Vdirs)) {
+                        for (var i = 0; i < j.Vdirs.length; i++) {
+                          var v = j.Vdirs[i];
+                          if (v && v.Protocol === name) {
+                            return (v.Healthy !== undefined && v.Healthy !== null) ? v.Healthy : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: 6e8e485cf43b473f8ef763d03565c09f
+              name: 'Exchange SE Vdir "{#PROTOCOL}" response time'
+              type: DEPENDENT
+              key: 'exchange.se.vdir.time["{#PROTOCOL}"]'
+              delay: '0'
+              units: ms
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#PROTOCOL}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Vdirs)) {
+                        for (var i = 0; i < j.Vdirs.length; i++) {
+                          var v = j.Vdirs[i];
+                          if (v && v.Protocol === name) {
+                            return (v.ResponseMs !== undefined && v.ResponseMs !== null) ? v.ResponseMs : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+            - uuid: f69a8b22937f41f9a1a4dfb0de62c5d1
+              name: 'Exchange SE Vdir "{#PROTOCOL}" HTTP status code'
+              type: DEPENDENT
+              key: 'exchange.se.vdir.code["{#PROTOCOL}"]'
+              delay: '0'
+              description: '0 when the probe could not connect at all.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - |
+                      var name = "{#PROTOCOL}";
+                      var j = JSON.parse(value);
+                      if (j && Array.isArray(j.Vdirs)) {
+                        for (var i = 0; i < j.Vdirs.length; i++) {
+                          var v = j.Vdirs[i];
+                          if (v && v.Protocol === name) {
+                            return (v.StatusCode !== undefined && v.StatusCode !== null) ? v.StatusCode : null;
+                          }
+                        }
+                      }
+                      return null;
+              master_item:
+                key: exchange.se.status
+          trigger_prototypes:
+            - uuid: aeb4c94f3e5840ac826ce5f37eea924e
+              expression: 'max(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.vdir.healthy["{#PROTOCOL}"],{$EXCH.VDIR.PROBLEM.WINDOW})=0 and ({$EXCH.ALERT.IN.MAINTENANCE}=1 or last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.server.maintenance)=0)'
+              name: 'Exchange SE "{#PROTOCOL}" health check is failing'
+              opdata: 'HTTP code: {ITEM.LASTVALUE1}'
+              priority: HIGH
+              description: 'The local https://localhost healthcheck.htm probe for {#PROTOCOL} has not returned HTTP 200 for the whole problem window. The protocol app pool is most likely down.'
+          master_item:
+            key: exchange.se.status
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var j = JSON.parse(value);
+                  var data = [];
+                  if (j && Array.isArray(j.Vdirs)) {
+                    for (var i = 0; i < j.Vdirs.length; i++) {
+                      var v = j.Vdirs[i];
+                      if (!v || !v.Protocol) continue;
+                      data.push({
+                        "{#PROTOCOL}": v.Protocol
+                      });
+                    }
+                  }
+                  return JSON.stringify({data: data});
+      macros:
+        - macro: '{$EXCH.ALERT.IN.MAINTENANCE}'
+          value: '0'
+          description: 'Set to 1 to keep component and virtual directory alerts firing while the server is in maintenance mode.'
+        - macro: '{$EXCH.BACKUP.ALERT}'
+          value: '1'
+          description: 'Set to 0 to disable database backup age alerts. Supports per-database context, e.g. {$EXCH.BACKUP.ALERT:"DB01"}.'
+        - macro: '{$EXCH.BACKUP.MAX.AGE.HOURS}'
+          value: '36'
+          description: 'Maximum accepted hours since the last full backup of a database. Supports per-database context.'
+        - macro: '{$EXCH.BP.PROBLEM.WINDOW}'
+          value: '10m'
+          description: 'How long transport back pressure must persist before the trigger is raised.'
+        - macro: '{$EXCH.CACHED.WARN.SEC}'
+          value: '900'
+          description: 'Raise a warning if the plugin is serving cached Exchange data older than this many seconds.'
+        - macro: '{$EXCH.CERT.CRIT.DAYS}'
+          value: '7'
+          description: 'High severity certificate expiry threshold in days. Supports per-certificate context by thumbprint.'
+        - macro: '{$EXCH.CERT.EXCLUDE.MATCHES}'
+          value: '^$'
+          description: 'Regex of certificate subjects that should not be discovered.'
+        - macro: '{$EXCH.CERT.SERVICES.MATCHES}'
+          value: '.*'
+          description: 'Regex the certificate bound-services string must match to be discovered. Example: IIS|SMTP to only monitor certificates bound to client access or mail flow.'
+        - macro: '{$EXCH.CERT.WARN.DAYS}'
+          value: '30'
+          description: 'Warning certificate expiry threshold in days. Supports per-certificate context by thumbprint.'
+        - macro: '{$EXCH.COLLECT.INTERVAL}'
+          value: 5m
+          description: 'How often the Go plugin collects the Exchange snapshot. A full collection takes 30-60 seconds on a typical server.'
+        - macro: '{$EXCH.COMPONENT.EXCLUDE.MATCHES}'
+          value: '^(ForwardSyncDaemon|ProvisioningRps)$'
+          description: 'Regex of server components that should not be discovered. The defaults are Inactive by design on-premises.'
+        - macro: '{$EXCH.COMPONENT.PROBLEM.WINDOW}'
+          value: '15m'
+          description: 'How long a component must stay Inactive before the trigger is raised.'
+        - macro: '{$EXCH.DB.COPYQUEUE.MAX}'
+          value: '50'
+          description: 'Maximum accepted database copy queue length. Supports per-database context, e.g. {$EXCH.DB.COPYQUEUE.MAX:"DB01"}.'
+        - macro: '{$EXCH.DB.INDEX.PROBLEM.WINDOW}'
+          value: '30m'
+          description: 'How long the content index must stay unhealthy before the trigger is raised.'
+        - macro: '{$EXCH.DB.PROBLEM.WINDOW}'
+          value: '10m'
+          description: 'How long a database copy must stay unhealthy before the copy/mount triggers are raised.'
+        - macro: '{$EXCH.DB.QUEUE.PROBLEM.WINDOW}'
+          value: '15m'
+          description: 'How long copy/replay queue lengths must stay above their thresholds before the triggers are raised.'
+        - macro: '{$EXCH.DB.REPLAYQUEUE.MAX}'
+          value: '200'
+          description: 'Maximum accepted database replay queue length. Raise per database for intentionally lagged copies, e.g. {$EXCH.DB.REPLAYQUEUE.MAX:"DB01"}.'
+        - macro: '{$EXCH.EVENTLOG.INTERVAL}'
+          value: 5m
+          description: 'Polling interval for Windows eventlog[] items.'
+        - macro: '{$EXCH.EVENTLOG.WINDOW}'
+          value: 30m
+          description: 'How long eventlog-based triggers stay open after the matching event ID was seen.'
+        - macro: '{$EXCH.HEALTHSET.EXCLUDE.MATCHES}'
+          value: '^$'
+          description: 'Regex of Managed Availability health sets that should not be discovered.'
+        - macro: '{$EXCH.HEALTHSET.PROBLEM.WINDOW}'
+          value: '30m'
+          description: 'How long a health set must stay Unhealthy before the trigger is raised. Managed Availability flaps by design; keep this generous.'
+        - macro: '{$EXCH.NODATA.WINDOW}'
+          value: '30m'
+          description: 'Raise a collection problem if no Exchange JSON is received inside this window.'
+        - macro: '{$EXCH.QUEUE.DEPTH.HIGH}'
+          value: '1000'
+          description: 'High severity threshold for the total mail queue depth.'
+        - macro: '{$EXCH.QUEUE.DEPTH.WARN}'
+          value: '100'
+          description: 'Warning threshold for the total mail queue depth.'
+        - macro: '{$EXCH.QUEUE.POISON.MAX}'
+          value: '0'
+          description: 'Maximum accepted number of messages in the poison queue.'
+        - macro: '{$EXCH.QUEUE.PROBLEM.WINDOW}'
+          value: '15m'
+          description: 'How long queue depth/retry conditions must persist before their triggers are raised.'
+        - macro: '{$EXCH.QUEUE.RETRY.MAX}'
+          value: '0'
+          description: 'Maximum accepted number of queues in Retry status.'
+        - macro: '{$EXCH.QUEUE.STALL.MIN.DEPTH}'
+          value: '50'
+          description: 'Minimum sustained queue depth for the "queue is growing and nothing is sent" trigger. Set this above the level normal short bursts reach in your environment.'
+        - macro: '{$EXCH.QUEUE.STALL.WINDOW}'
+          value: '30m'
+          description: 'Evaluation window for the "queue is growing and nothing is sent" trigger: outgoing rate must be 0 and depth above {$EXCH.QUEUE.STALL.MIN.DEPTH} for this whole period.'
+        - macro: '{$EXCH.QUEUE.SUBMISSION.MAX}'
+          value: '100'
+          description: 'Maximum accepted submission queue depth.'
+        - macro: '{$EXCH.QUEUE.UNREACHABLE.MAX}'
+          value: '0'
+          description: 'Maximum accepted number of messages in the unreachable queue.'
+        - macro: '{$EXCH.REPL.PROBLEM.WINDOW}'
+          value: '15m'
+          description: 'How long DAG replication health checks must keep failing before the trigger is raised.'
+        - macro: '{$EXCH.SERVICE.EXCLUDE.MATCHES}'
+          value: '^(MSExchangeNotificationsBroker)$'
+          description: 'Regex of service names that should not be discovered. MSExchangeNotificationsBroker is automatic but commonly stopped by design.'
+        - macro: '{$EXCH.SERVICE.PROBLEM.WINDOW}'
+          value: '10m'
+          description: 'How long an automatic-start service must stay stopped before the trigger is raised.'
+        - macro: '{$EXCH.VDIR.EXCLUDE.MATCHES}'
+          value: '^$'
+          description: 'Regex of protocol names (OWA, ECP, EWS, ActiveSync, Autodiscover, MAPI, OAB, RPC, PowerShell) that should not be discovered.'
+        - macro: '{$EXCH.VDIR.PROBLEM.WINDOW}'
+          value: '10m'
+          description: 'How long a protocol health check must keep failing before the trigger is raised.'
+      valuemaps:
+        - uuid: a5fbe55d04444422870120e946d56ac2
+          name: 'Exchange SE back pressure'
+          mappings:
+            - value: '0'
+              newvalue: Normal
+            - value: '1'
+              newvalue: Medium
+            - value: '2'
+              newvalue: High
+        - uuid: c39c81d1ad5c4d19b5cf79ea5fd7c475
+          name: 'Exchange SE component state'
+          mappings:
+            - value: '0'
+              newvalue: Inactive
+            - value: '1'
+              newvalue: Active
+            - value: '2'
+              newvalue: Draining
+        - uuid: 13db374c5cad4d38a788ea49ec0daa9e
+          name: 'Exchange SE health set state'
+          mappings:
+            - value: '0'
+              newvalue: Unhealthy
+            - value: '1'
+              newvalue: Degraded
+            - value: '2'
+              newvalue: Repairing
+            - value: '3'
+              newvalue: Unknown
+            - value: '4'
+              newvalue: Disabled
+            - value: '5'
+              newvalue: Healthy
+        - uuid: 48a2b437398d4c3888b181879fc2e00e
+          name: 'Exchange SE running state'
+          mappings:
+            - value: '0'
+              newvalue: 'Not running'
+            - value: '1'
+              newvalue: Running
+        - uuid: 33b19e436fba4655b3716c4a4ce790b1
+          name: 'Exchange SE yes/no'
+          mappings:
+            - value: '0'
+              newvalue: 'No'
+            - value: '1'
+              newvalue: 'Yes'
+  triggers:
+    - uuid: 227f232d9f074a3993073a39147143dd
+      expression: 'min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.total.outrate,{$EXCH.QUEUE.STALL.WINDOW})=0 and min(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.queue.total.depth,{$EXCH.QUEUE.STALL.WINDOW})>={$EXCH.QUEUE.STALL.MIN.DEPTH}'
+      name: 'Exchange SE mail queue is growing and nothing is being sent'
+      opdata: 'outgoing rate: {ITEM.LASTVALUE1}, depth: {ITEM.LASTVALUE2}'
+      priority: HIGH
+      description: |
+        For the whole {$EXCH.QUEUE.STALL.WINDOW} window the transport queues have held at least {$EXCH.QUEUE.STALL.MIN.DEPTH} messages while the outgoing rate stayed at 0 - mail is accumulating but nothing is being delivered.
+        Check the "Mail queue: problem queues detail" item for the affected queues and their last error, transport back pressure, and the state of the MSExchangeTransport service.
+    - uuid: b9a5b08d4fc441f9ac87ccdbf64376e3
+      expression: 'last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.collection.mode)<>"live" and last(/Microsoft Exchange SE by Zabbix Agent 2 Active/exchange.se.collection.age)>={$EXCH.CACHED.WARN.SEC}'
+      name: 'Exchange SE plugin is serving cached data'
+      priority: WARNING
+      description: 'Live collection keeps failing and the plugin is returning the last good snapshot. See the Collection error item for the live failure reason.'
