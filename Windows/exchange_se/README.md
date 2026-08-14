@@ -28,6 +28,20 @@ All output is aggregated into **one JSON master item** (`exchange.se.status`); e
 dependent items and dependent low-level discovery, so the server is queried once per interval
 (default 5 minutes).
 
+## Dashboard
+
+The template ships a host dashboard, **"Exchange SE overview"** (Monitoring → Hosts →
+Dashboards), with four pages:
+
+- **Mail flow** — queue depth/rate tiles and graphs, back pressure state, problem queue detail
+  with last errors
+- **Server health** — unhealthy counters, honeycombs for protocol health checks, Exchange
+  services and Managed Availability health sets, per-protocol response time graphs
+- **Databases & DAG** — database copy health honeycomb, per-database replication queue and
+  size/whitespace graphs, backup age honeycomb, replication health detail
+- **Certificates & collector** — per-certificate days-remaining honeycomb (red < 7 d,
+  orange < 30 d), plugin collection status and server version/edition
+
 ## Read-only guarantee
 
 The collector only runs `Get-*` cmdlets, `Test-ReplicationHealth` (a read-only diagnostic) and

@@ -20,7 +20,7 @@ zabbix_export:
         The plugin is strictly read-only. All alert thresholds and windows are adjustable via {$EXCH.*} macros, many with per-object context support (for example {$EXCH.DB.COPYQUEUE.MAX:"DB01"}).
       vendor:
         name: Keberneth
-        version: 7.0-1
+        version: 7.0.1
       groups:
         - name: Templates
       items:
@@ -1125,6 +1125,19 @@ zabbix_export:
               name: 'Exchange SE database "{#DATABASE}" content index is not healthy'
               opdata: 'state: {ITEM.LASTVALUE1}'
               priority: WARNING
+          graph_prototypes:
+            - uuid: f0e15fe50eef43c7b736dbcbc4ef753d
+              name: 'Exchange SE DB copy "{#DATABASE}": replication queue lengths'
+              graph_items:
+                - color: 1A7C11
+                  item:
+                    host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                    key: 'exchange.se.dbcopy.copyqueue["{#DATABASE}"]'
+                - sortorder: '1'
+                  color: F63100
+                  item:
+                    host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                    key: 'exchange.se.dbcopy.replayqueue["{#DATABASE}"]'
           master_item:
             key: exchange.se.status
           preprocessing:
@@ -1285,6 +1298,19 @@ zabbix_export:
               name: 'Exchange SE database "{#DATABASE}" has never had a full backup'
               priority: INFO
               manual_close: 'YES'
+          graph_prototypes:
+            - uuid: 739c7c58fcb04c6a98b4843a3b847aea
+              name: 'Exchange SE DB "{#DATABASE}": size and whitespace'
+              graph_items:
+                - color: 1A7C11
+                  item:
+                    host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                    key: 'exchange.se.db.size["{#DATABASE}"]'
+                - sortorder: '1'
+                  color: 2774A4
+                  item:
+                    host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                    key: 'exchange.se.db.whitespace["{#DATABASE}"]'
           master_item:
             key: exchange.se.status
           preprocessing:
@@ -1455,6 +1481,14 @@ zabbix_export:
               opdata: 'HTTP code: {ITEM.LASTVALUE1}'
               priority: HIGH
               description: 'The local https://localhost healthcheck.htm probe for {#PROTOCOL} has not returned HTTP 200 for the whole problem window. The protocol app pool is most likely down.'
+          graph_prototypes:
+            - uuid: f0f6f3b8a2c248e1971c2b62ac8de74c
+              name: 'Exchange SE Vdir "{#PROTOCOL}": response time'
+              graph_items:
+                - color: 1A7C11
+                  item:
+                    host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                    key: 'exchange.se.vdir.time["{#PROTOCOL}"]'
           master_item:
             key: exchange.se.status
           preprocessing:
@@ -1582,6 +1616,764 @@ zabbix_export:
         - macro: '{$EXCH.VDIR.PROBLEM.WINDOW}'
           value: '10m'
           description: 'How long a protocol health check must keep failing before the trigger is raised.'
+      dashboards:
+        - uuid: fa05574f1e1e409c89443fbc8030bf2a
+          name: 'Exchange SE overview'
+          pages:
+            - name: 'Mail flow'
+              widgets:
+                - type: item
+                  name: 'Total queue depth'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.total.depth
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Submission queue'
+                  x: '12'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.submission.depth
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Queues in retry'
+                  x: '24'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.retry.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Poison queue'
+                  x: '36'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.poison.depth
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Unreachable queue'
+                  x: '48'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.unreachable.depth
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Transport back pressure'
+                  x: '60'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.backpressure.state
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: svggraph
+                  name: 'Queue depth'
+                  'y': '4'
+                  width: '36'
+                  height: '6'
+                  fields:
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: 1f78b4
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: ff7f00
+                    - type: STRING
+                      name: ds.0.color.2
+                      value: e31a1c
+                    - type: STRING
+                      name: ds.0.color.3
+                      value: 6a3d9a
+                    - type: STRING
+                      name: ds.0.color.4
+                      value: '878787'
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.total.depth
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.submission.depth
+                    - type: ITEM
+                      name: ds.0.itemids.2
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.unreachable.depth
+                    - type: ITEM
+                      name: ds.0.itemids.3
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.poison.depth
+                    - type: ITEM
+                      name: ds.0.itemids.4
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.shadow.depth
+                    - type: STRING
+                      name: reference
+                      value: EXAAA
+                - type: svggraph
+                  name: 'Queue rates (messages/min)'
+                  x: '36'
+                  'y': '4'
+                  width: '36'
+                  height: '6'
+                  fields:
+                    - type: STRING
+                      name: ds.0.color.0
+                      value: 1f78b4
+                    - type: STRING
+                      name: ds.0.color.1
+                      value: 33a02c
+                    - type: INTEGER
+                      name: ds.0.dataset_type
+                      value: '0'
+                    - type: ITEM
+                      name: ds.0.itemids.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.total.inrate
+                    - type: ITEM
+                      name: ds.0.itemids.1
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.total.outrate
+                    - type: STRING
+                      name: reference
+                      value: EXAAB
+                - type: item
+                  name: 'Problem queues detail'
+                  'y': '10'
+                  width: '72'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.queue.problem.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Back pressure detail'
+                  'y': '14'
+                  width: '72'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.backpressure.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+            - name: 'Server health'
+              widgets:
+                - type: item
+                  name: 'Health sets unhealthy'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.health.unhealthy.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Services not running'
+                  x: '12'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.services.notrunning.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Components inactive'
+                  x: '24'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.components.inactive.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Vdir checks failing'
+                  x: '36'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.vdirs.unhealthy.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Maintenance mode'
+                  x: '48'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.server.maintenance
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'DAG'
+                  x: '60'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.server.dag
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: honeycomb
+                  name: 'Protocol health checks'
+                  'y': '4'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE Vdir "*" healthy'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE Vdir \"(.*)\" healthy","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAC
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: honeycomb
+                  name: 'Exchange services'
+                  x: '36'
+                  'y': '4'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE Service "*" running'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE Service \"(.*)\" running","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAD
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: honeycomb
+                  name: 'Managed Availability health sets'
+                  'y': '9'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE Health set "*" state'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE Health set \"(.*)\" state","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAE
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: ff7f00
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                    - type: STRING
+                      name: thresholds.2.color
+                      value: 1f78b4
+                    - type: STRING
+                      name: thresholds.2.threshold
+                      value: '2'
+                    - type: STRING
+                      name: thresholds.3.color
+                      value: '878787'
+                    - type: STRING
+                      name: thresholds.3.threshold
+                      value: '3'
+                    - type: STRING
+                      name: thresholds.4.color
+                      value: '878787'
+                    - type: STRING
+                      name: thresholds.4.threshold
+                      value: '4'
+                    - type: STRING
+                      name: thresholds.5.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.5.threshold
+                      value: '5'
+                - type: graphprototype
+                  name: 'Vdir response times'
+                  x: '36'
+                  'y': '9'
+                  width: '36'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '3'
+                    - type: GRAPH_PROTOTYPE
+                      name: graphid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        name: 'Exchange SE Vdir "{#PROTOCOL}": response time'
+                    - type: STRING
+                      name: reference
+                      value: EXAAF
+                - type: item
+                  name: 'Unhealthy health sets'
+                  'y': '14'
+                  width: '36'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.health.unhealthy.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Stopped services'
+                  x: '36'
+                  'y': '14'
+                  width: '36'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.services.notrunning.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+            - name: 'Databases & DAG'
+              widgets:
+                - type: item
+                  name: 'DB copies unhealthy'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.dbcopies.unhealthy.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Replication checks failing'
+                  x: '12'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.replication.failed.count
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: honeycomb
+                  name: 'Database copies health'
+                  x: '24'
+                  width: '48'
+                  height: '4'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE DB copy "*": healthy'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE DB copy \"(.*)\": healthy","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAG
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '1'
+                - type: graphprototype
+                  name: 'Replication queue lengths'
+                  'y': '4'
+                  width: '72'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '2'
+                    - type: GRAPH_PROTOTYPE
+                      name: graphid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        name: 'Exchange SE DB copy "{#DATABASE}": replication queue lengths'
+                    - type: STRING
+                      name: reference
+                      value: EXAAH
+                - type: graphprototype
+                  name: 'Database size and whitespace'
+                  'y': '9'
+                  width: '72'
+                  height: '5'
+                  fields:
+                    - type: INTEGER
+                      name: columns
+                      value: '2'
+                    - type: GRAPH_PROTOTYPE
+                      name: graphid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        name: 'Exchange SE DB "{#DATABASE}": size and whitespace'
+                    - type: STRING
+                      name: reference
+                      value: EXAAI
+                - type: honeycomb
+                  name: 'Hours since last full backup'
+                  'y': '14'
+                  width: '36'
+                  height: '4'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE DB "*": hours since last full backup'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE DB \"(.*)\": hours since last full backup","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAJ
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '-1'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.2.color
+                      value: ff7f00
+                    - type: STRING
+                      name: thresholds.2.threshold
+                      value: '36'
+                - type: item
+                  name: 'Replication health detail'
+                  x: '36'
+                  'y': '14'
+                  width: '36'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.replication.detail
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+            - name: 'Certificates & collector'
+              widgets:
+                - type: item
+                  name: 'Cert days remaining (min)'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.cert.min.days
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: honeycomb
+                  name: 'Certificates: days remaining'
+                  x: '12'
+                  width: '60'
+                  height: '4'
+                  fields:
+                    - type: STRING
+                      name: items.0
+                      value: 'Exchange SE Certificate "*": days remaining'
+                    - type: STRING
+                      name: primary_label
+                      value: '{{ITEM.NAME}.regsub("Exchange SE Certificate \"(.*)\": days remaining","\1")}'
+                    - type: STRING
+                      name: reference
+                      value: EXAAK
+                    - type: INTEGER
+                      name: secondary_label_decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: e31a1c
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '-36500'
+                    - type: STRING
+                      name: thresholds.1.color
+                      value: ff7f00
+                    - type: STRING
+                      name: thresholds.1.threshold
+                      value: '7'
+                    - type: STRING
+                      name: thresholds.2.color
+                      value: 33a02c
+                    - type: STRING
+                      name: thresholds.2.threshold
+                      value: '30'
+                - type: item
+                  name: 'Collection mode'
+                  'y': '4'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.collection.mode
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Collection age'
+                  x: '12'
+                  'y': '4'
+                  width: '12'
+                  height: '4'
+                  fields:
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.collection.age
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Exchange version'
+                  x: '24'
+                  'y': '4'
+                  width: '24'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.server.version
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Edition'
+                  x: '48'
+                  'y': '4'
+                  width: '24'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.server.edition
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                - type: item
+                  name: 'Collector partial errors'
+                  'y': '8'
+                  width: '72'
+                  height: '4'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'Microsoft Exchange SE by Zabbix Agent 2 Active'
+                        key: exchange.se.collector.errors
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
       valuemaps:
         - uuid: a5fbe55d04444422870120e946d56ac2
           name: 'Exchange SE back pressure'
