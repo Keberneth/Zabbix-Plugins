@@ -5,7 +5,7 @@ This repository targets **Zabbix Agent 2 7.0.28** on `linux/amd64` and
 
 All modules intentionally pin:
 
-- Go language/toolchain baseline: `1.25.9`
+- Go language/toolchain baseline: `1.26.7`
 - Agent 2 SDK: `golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e`
 - Loadable-plugin protocol reported by that SDK: `6.4.0`
 

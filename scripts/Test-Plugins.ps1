@@ -32,7 +32,7 @@ if ($duplicateBinaries.Count -gt 0 -or $duplicateDirectories.Count -gt 0) {
     throw 'plugins.json contains duplicate binary names or module directories.'
 }
 
-$expectedGo = '1.25.9'
+$expectedGo = '1.26.7'
 $expectedSdk = [string] $catalog.zabbix.sdk
 $outputRoot = Join-Path ([IO.Path]::GetTempPath()) ('zabbix-plugin-validation-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $outputRoot | Out-Null
@@ -52,7 +52,7 @@ try {
         $goModPath = Join-Path $moduleDir 'go.mod'
         $goMod = Get-Content -LiteralPath $goModPath -Raw
 
-        if ($goMod -notmatch "(?m)^go $([regex]::Escape($expectedGo))$") {
+        if ($goMod -notmatch "(?m)^go $([regex]::Escape($expectedGo))\r?$") {
             throw "$($entry.dir)/go.mod must declare 'go $expectedGo'."
         }
         if ($goMod -match '(?m)^toolchain ') {

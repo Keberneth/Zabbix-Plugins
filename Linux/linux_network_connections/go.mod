@@ -1,6 +1,6 @@
 module linux_network_connections
 
-go 1.25.9
+go 1.26.7
 
 require golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e
 

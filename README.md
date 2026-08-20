@@ -10,7 +10,7 @@ changing Go or the Zabbix SDK dependency.
 
 ## Compatibility
 
-- Go `1.25.9`
+- Go `1.26.7`
 - Zabbix Agent 2 `7.0.28`
 - Agent 2 plugin protocol `6.4.0`
 - SDK `golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e`
@@ -41,7 +41,7 @@ read that catalog so those lists cannot drift independently.
 
 ## Build and validate
 
-Install Go 1.25.9, clone the repository, and run the native validation script:
+Install Go 1.26.7, clone the repository, and run the native validation script:
 
 ```powershell
 pwsh -File .\scripts\Test-Plugins.ps1

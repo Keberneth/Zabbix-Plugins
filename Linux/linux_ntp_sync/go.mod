@@ -1,6 +1,6 @@
 module linux_ntp_sync
 
-go 1.25.9
+go 1.26.7
 
 require (
 	github.com/beevik/ntp v1.5.0
