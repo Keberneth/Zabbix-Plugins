@@ -10,8 +10,10 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 	"os"
 	"path/filepath"
 	"sort"
@@ -46,7 +48,10 @@ func (p *impl) logf(format string, args ...interface{}) {
 
 func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, plugin.UnsupportedMetricError
+		return nil, errs.Wrapf(zbxerr.ErrorUnsupportedMetric, "unknown metric %q", key)
+	}
+	if len(params) != 0 {
+		return nil, errs.Wrapf(zbxerr.ErrorTooManyParameters, "metric %q accepts no parameters", key)
 	}
 
 	out, err := collectListeningPorts()
@@ -69,9 +74,13 @@ func main() {
 	for _, a := range os.Args[1:] {
 		if a == "--standalone" || a == "-standalone" || a == "standalone" {
 			p := &impl{}
-			v, _ := p.Export(metricKey, nil, nil)
+			v, err := p.Export(metricKey, nil, nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
 			fmt.Println(v)
-			os.Exit(0)
+			return
 		}
 	}
 
@@ -156,14 +165,14 @@ type mibTCPRowOwnerPID struct {
 }
 
 type mibTCP6RowOwnerPID struct {
-	LocalAddr      [16]byte
-	LocalScopeID   uint32
-	LocalPort      uint32
-	RemoteAddr     [16]byte
-	RemoteScopeID  uint32
-	RemotePort     uint32
-	State          uint32
-	OwningPID      uint32
+	LocalAddr     [16]byte
+	LocalScopeID  uint32
+	LocalPort     uint32
+	RemoteAddr    [16]byte
+	RemoteScopeID uint32
+	RemotePort    uint32
+	State         uint32
+	OwningPID     uint32
 }
 
 var (
@@ -244,8 +253,8 @@ var excludedProcesses = map[string]struct{}{
 }
 
 type manualPortInfo struct {
-	ServiceName  string
-	Description  string
+	ServiceName string
+	Description string
 }
 
 // DisplayName is intentionally not included because the output must match the scripts

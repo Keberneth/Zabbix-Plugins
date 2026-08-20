@@ -26,6 +26,8 @@ const (
 	metricStatusJSONPrev = "wlu.update.status.previous"
 	metricInstalledPrev  = "wlu.update.installed.previous"
 	powerShellTimeout    = 60 * time.Second
+	timeoutMargin        = time.Second
+	minimumTimeout       = 100 * time.Millisecond
 	cacheTTL             = 30 * time.Minute
 )
 
@@ -200,7 +202,7 @@ func maybeRunStandalone(args []string) (int, bool) {
 		return 2, true
 	}
 
-	payload, err := collectLive(month)
+	payload, err := collectLive(month, powerShellTimeout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 1, true
@@ -260,7 +262,7 @@ func run() error {
 	return nil
 }
 
-func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider) (any, error) {
+func (p *wluPlugin) Export(key string, params []string, ctx plugin.ContextProvider) (any, error) {
 	now := time.Now()
 
 	var month string
@@ -281,7 +283,7 @@ func (p *wluPlugin) Export(key string, params []string, _ plugin.ContextProvider
 		return nil, errs.Errorf("unknown item key %q", key)
 	}
 
-	payload, err := p.collect(month)
+	payload, err := p.collect(month, effectiveTimeout(contextTimeout(ctx), powerShellTimeout))
 	if err != nil {
 		return nil, err
 	}
@@ -443,8 +445,8 @@ func parseMonthParam(params []string) (string, error) {
 	return value, nil
 }
 
-func (p *wluPlugin) collect(month string) (string, error) {
-	payload, err := collectLive(month)
+func (p *wluPlugin) collect(month string, collectionTimeout time.Duration) (string, error) {
+	payload, err := collectLive(month, collectionTimeout)
 	if err == nil {
 		p.storeCache(month, payload)
 		return payload, nil
@@ -475,8 +477,8 @@ func extractInstalled(payload string) (int, error) {
 	}
 }
 
-func collectLive(month string) (string, error) {
-	commandCtx, cancel := context.WithTimeout(context.Background(), powerShellTimeout)
+func collectLive(month string, collectionTimeout time.Duration) (string, error) {
+	commandCtx, cancel := context.WithTimeout(context.Background(), collectionTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(
@@ -498,7 +500,7 @@ func collectLive(month string) (string, error) {
 
 	output, err := cmd.CombinedOutput()
 	if commandCtx.Err() == context.DeadlineExceeded {
-		return "", errs.Errorf("powershell collection timed out after %s", powerShellTimeout)
+		return "", errs.Errorf("powershell collection timed out after %s", collectionTimeout)
 	}
 
 	if err != nil {
@@ -510,6 +512,36 @@ func collectLive(month string) (string, error) {
 	}
 
 	return enrichPayload(output, "live", "", 0)
+}
+
+func contextTimeout(ctx plugin.ContextProvider) int {
+	if ctx == nil {
+		return 0
+	}
+
+	return ctx.Timeout()
+}
+
+// effectiveTimeout keeps the existing collector timeout as a hard cap while
+// leaving the agent about one second to receive and encode the plugin result.
+func effectiveTimeout(agentTimeoutSeconds int, hardCap time.Duration) time.Duration {
+	if hardCap <= 0 {
+		hardCap = minimumTimeout
+	}
+	if agentTimeoutSeconds <= 0 {
+		return hardCap
+	}
+
+	agentTimeout := time.Duration(agentTimeoutSeconds) * time.Second
+	available := agentTimeout - timeoutMargin
+	if available <= 0 {
+		available = minimumTimeout
+	}
+	if available < hardCap {
+		return available
+	}
+
+	return hardCap
 }
 
 func resolvePowerShellPath() string {

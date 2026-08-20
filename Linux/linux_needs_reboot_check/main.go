@@ -16,6 +16,7 @@ import (
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 // commandTimeout bounds every external command. Without it a hung package
@@ -48,7 +49,11 @@ var (
 func main() {
 	standalone, verbose := parseArgs(os.Args[1:])
 	if standalone {
-		code := runStandalone(verbose)
+		code, err := runStandalone(verbose)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "needs_reboot_check:", err)
+			os.Exit(1)
+		}
 		fmt.Println(code)
 		os.Exit(0)
 	}
@@ -97,16 +102,15 @@ func runPlugin() error {
 	return nil
 }
 
-func runStandalone(verbose bool) string {
+func runStandalone(verbose bool) (string, error) {
 	pending, reasons, err := isRebootPendingDetailed()
 	if err != nil && verbose {
-		// Secondary-check errors are non-fatal and must never override a confirmed
-		// pending=true; just surface them.
-		fmt.Fprintln(os.Stderr, "needs_reboot_check: non-fatal check error:", err)
-	}
-	if err != nil && !pending {
-		// We could not confirm a reboot and at least one check errored: best-effort 0.
-		return "0"
+		if pending {
+			// Secondary-check errors must never override a confirmed reboot signal.
+			fmt.Fprintln(os.Stderr, "needs_reboot_check: non-fatal check error:", err)
+		} else {
+			fmt.Fprintln(os.Stderr, "needs_reboot_check: reboot check error:", err)
+		}
 	}
 
 	if verbose {
@@ -115,34 +119,54 @@ func runStandalone(verbose bool) string {
 			for _, r := range reasons {
 				fmt.Fprintln(os.Stderr, "-", r)
 			}
-		} else {
+		} else if err == nil {
 			fmt.Fprintln(os.Stderr, "needs_reboot_check: no reboot-required signals detected")
 		}
 	}
 
-	if pending {
-		return "1"
-	}
-	return "0"
+	return rebootMetricValue(pending, err)
 }
 
-func (p *NeedsRebootCheckPlugin) Export(key string, _ []string, _ plugin.ContextProvider) (interface{}, error) {
+func (p *NeedsRebootCheckPlugin) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, plugin.UnsupportedMetricError
+		return nil, errs.WrapConst(errs.Errorf("unknown metric %q", key), zbxerr.ErrorUnsupportedMetric)
+	}
+	if len(params) != 0 {
+		return nil, errs.WrapConst(
+			errs.Errorf("metric %q accepts no parameters", key),
+			zbxerr.ErrorTooManyParameters,
+		)
 	}
 
 	pending, reasons, err := isRebootPendingDetailed()
 	if err != nil && p.Logger != nil {
-		// Secondary-check errors are non-fatal and must never override a confirmed
-		// pending=true; just log them.
-		p.Infof("%s: non-fatal reboot check error: %v", pluginName, err)
+		if pending {
+			// Secondary-check errors are non-fatal when another signal confirmed
+			// that a reboot is required.
+			p.Infof("%s: non-fatal reboot check error: %v", pluginName, err)
+		} else {
+			p.Infof("%s: reboot check error: %v", pluginName, err)
+		}
 	}
 
 	if pending {
 		if p.Logger != nil && len(reasons) > 0 {
 			p.Infof("%s: reboot recommended: %s", pluginName, strings.Join(reasons, ", "))
 		}
+	}
+
+	return rebootMetricValue(pending, err)
+}
+
+func rebootMetricValue(pending bool, checkErr error) (string, error) {
+	if pending {
 		return "1", nil
+	}
+	if checkErr != nil {
+		return "", errs.WrapConst(
+			errs.Wrap(checkErr, "failed to determine whether a reboot is required"),
+			zbxerr.ErrorCannotFetchData,
+		)
 	}
 
 	return "0", nil

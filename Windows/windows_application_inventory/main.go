@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 const (
@@ -101,15 +103,21 @@ func runPlugin() error {
 }
 
 func runStandalone(verbose bool) (string, error) {
-	apps, warns := collectInstalledApps()
+	apps, warns, collectErr := collectInstalledApps()
 	if verbose {
 		fmt.Fprintf(os.Stderr, "collected %d application entries\n", len(apps))
 		for _, w := range warns {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", w)
 		}
 	}
+	if collectErr != nil {
+		return "[]", errs.WrapConst(
+			errs.Wrap(collectErr, "failed to collect installed applications"),
+			zbxerr.ErrorCannotFetchData,
+		)
+	}
 
-	out, err := marshalPowerShellJSON(apps)
+	out, err := marshalInventoryJSON(apps, marshalPowerShellJSON)
 	if err != nil {
 		if verbose {
 			fmt.Fprintf(os.Stderr, "marshal error: %v\n", err)
@@ -119,25 +127,36 @@ func runStandalone(verbose bool) (string, error) {
 	return out, nil
 }
 
-func (p *ApplicationInventoryPlugin) Export(key string, _ []string, _ plugin.ContextProvider) (interface{}, error) {
+func (p *ApplicationInventoryPlugin) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, errs.Errorf("unknown item key %q", key)
+		return nil, errs.WrapConst(errs.Errorf("unknown metric %q", key), zbxerr.ErrorUnsupportedMetric)
+	}
+	if len(params) != 0 {
+		return nil, errs.WrapConst(
+			errs.Errorf("metric %q accepts no parameters", key),
+			zbxerr.ErrorTooManyParameters,
+		)
 	}
 
-	apps, warns := collectInstalledApps()
+	apps, warns, collectErr := collectInstalledApps()
 	for _, w := range warns {
 		if p.Logger != nil {
 			p.Infof("%s: %v", pluginName, w)
 		}
 	}
+	if collectErr != nil {
+		return nil, errs.WrapConst(
+			errs.Wrap(collectErr, "failed to collect installed applications"),
+			zbxerr.ErrorCannotFetchData,
+		)
+	}
 
-	out, err := marshalPowerShellJSON(apps)
+	out, err := marshalInventoryJSON(apps, marshalPowerShellJSON)
 	if err != nil {
-		// Best-effort: if we cannot marshal, return empty array.
 		if p.Logger != nil {
 			p.Infof("%s: marshal error: %v", pluginName, err)
 		}
-		return "[]", nil
+		return nil, err
 	}
 
 	return out, nil
@@ -157,16 +176,31 @@ var uninstallRoots = []uninstallRoot{
 	{registry.CURRENT_USER, "HKEY_CURRENT_USER", "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"},
 }
 
-func collectInstalledApps() ([]AppEntry, []error) {
+type uninstallRootReader func(uninstallRoot) ([]AppEntry, []error, error)
+
+func collectInstalledApps() ([]AppEntry, []error, error) {
+	return collectInstalledAppsFrom(uninstallRoots, readUninstallRoot)
+}
+
+func collectInstalledAppsFrom(roots []uninstallRoot, readRoot uninstallRootReader) ([]AppEntry, []error, error) {
 	// Initialize as a non-nil slice so JSON encoding emits an empty array "[]"
-	// (not "null") when no applications are found / all roots fail.
+	// (not "null") when no applications are installed in readable roots.
 	all := make([]AppEntry, 0)
 	var warns []error
+	var rootErrs []error
+	successfulRoots := 0
 
-	for _, r := range uninstallRoots {
-		apps, w := readUninstallRoot(r)
-		all = append(all, apps...)
+	for _, r := range roots {
+		apps, w, rootErr := readRoot(r)
 		warns = append(warns, w...)
+		if rootErr != nil {
+			warns = append(warns, rootErr)
+			rootErrs = append(rootErrs, rootErr)
+			continue
+		}
+
+		successfulRoots++
+		all = append(all, apps...)
 	}
 
 	// Sort by DisplayName like: Sort-Object DisplayName
@@ -179,19 +213,26 @@ func collectInstalledApps() ([]AppEntry, []error) {
 		return a < b
 	})
 
-	return all, warns
+	if successfulRoots == 0 {
+		if len(rootErrs) == 0 {
+			return all, warns, errors.New("no registry uninstall roots are configured")
+		}
+		return all, warns, fmt.Errorf("all registry uninstall roots failed: %w", errors.Join(rootErrs...))
+	}
+
+	return all, warns, nil
 }
 
-func readUninstallRoot(r uninstallRoot) ([]AppEntry, []error) {
+func readUninstallRoot(r uninstallRoot) ([]AppEntry, []error, error) {
 	k, err := registry.OpenKey(r.root, r.path, registry.QUERY_VALUE|registry.ENUMERATE_SUB_KEYS)
 	if err != nil {
-		return nil, []error{fmt.Errorf("open %s\\%s: %w", r.hiveName, r.path, err)}
+		return nil, nil, fmt.Errorf("open %s\\%s: %w", r.hiveName, r.path, err)
 	}
 	defer k.Close()
 
 	names, err := k.ReadSubKeyNames(-1)
 	if err != nil {
-		return nil, []error{fmt.Errorf("enumerate %s\\%s: %w", r.hiveName, r.path, err)}
+		return nil, nil, fmt.Errorf("enumerate %s\\%s: %w", r.hiveName, r.path, err)
 	}
 
 	apps := make([]AppEntry, 0, len(names))
@@ -225,7 +266,7 @@ func readUninstallRoot(r uninstallRoot) ([]AppEntry, []error) {
 		sk.Close()
 	}
 
-	return apps, warns
+	return apps, warns, nil
 }
 
 func buildPSRegistryPath(hiveName, keyPath string) string {
@@ -280,4 +321,18 @@ func marshalPowerShellJSON(apps []AppEntry) (string, error) {
 	}
 
 	return string(b), nil
+}
+
+type inventoryJSONMarshaler func([]AppEntry) (string, error)
+
+func marshalInventoryJSON(apps []AppEntry, marshal inventoryJSONMarshaler) (string, error) {
+	out, err := marshal(apps)
+	if err != nil {
+		return "", errs.WrapConst(
+			errs.Wrap(err, "failed to encode installed applications"),
+			zbxerr.ErrorCannotMarshalJSON,
+		)
+	}
+
+	return out, nil
 }

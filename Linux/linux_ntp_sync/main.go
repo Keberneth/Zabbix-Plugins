@@ -17,11 +17,12 @@ import (
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 const (
-	pluginName = "LinuxNTPSync"
-	metricKey  = "linux.ntp.sync"
+	pluginName  = "LinuxNTPSync"
+	metricKey   = "linux.ntp.sync"
 	metricDescr = "Return the time difference (seconds) between the local clock and a given NTP server " +
 		"as JSON (linux.ntp.sync[server]). Fields: success, ntp_server, local_ts, ntp_ts, " +
 		"diff_seconds, stratum, rtt_ms, attempts, error."
@@ -30,6 +31,9 @@ const (
 	queryTimeout = 3 * time.Second
 	retryBackoff = 250 * time.Millisecond
 	maxServerLen = 255
+
+	standaloneRequestTimeout = 10 * time.Second
+	agentTimeoutMargin       = 250 * time.Millisecond
 )
 
 type LinuxNTPSyncPlugin struct {
@@ -55,20 +59,29 @@ type NtpOutput struct {
 	Error       string   `json:"error,omitempty"`
 }
 
-func (p *LinuxNTPSyncPlugin) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
+func (p *LinuxNTPSyncPlugin) Export(key string, params []string, provider plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, errs.Errorf("unknown item key %q", key)
+		return nil, errs.Wrapf(zbxerr.ErrorUnsupportedMetric, "unknown metric %q", key)
 	}
-	if len(params) < 1 {
-		return marshalNtp(NtpOutput{Success: false, Error: "no NTP server provided"})
+
+	switch len(params) {
+	case 0:
+		return nil, errs.Wrapf(zbxerr.ErrorTooFewParameters, "%s expects exactly one server parameter", metricKey)
+	case 1:
+		// Expected arity.
+	default:
+		return nil, errs.Wrapf(zbxerr.ErrorTooManyParameters, "%s expects exactly one server parameter", metricKey)
 	}
 
 	server := strings.TrimSpace(params[0])
 	if err := validateServer(server); err != nil {
-		return marshalNtp(NtpOutput{Success: false, NtpServer: server, Error: err.Error()})
+		return nil, errs.WrapConst(err, zbxerr.ErrorInvalidParams)
 	}
 
-	resp, attempts, lastErr := queryNTP(server)
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout(provider))
+	defer cancel()
+
+	resp, attempts, lastErr := queryNTP(ctx, server)
 	if lastErr != nil {
 		return marshalNtp(NtpOutput{
 			Success:   false,
@@ -98,26 +111,48 @@ func (p *LinuxNTPSyncPlugin) Export(key string, params []string, _ plugin.Contex
 // (Validate rejects Kiss-of-Death packets and an unsynchronised server, i.e.
 // stratum 0 or >= 16). Returns the first valid response, the number of attempts
 // made, and the last error on total failure.
-func queryNTP(server string) (*ntp.Response, int, error) {
+func queryNTP(ctx context.Context, server string) (*ntp.Response, int, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
+	}
+
 	// Bound DNS resolution explicitly. QueryOptions.Timeout covers only the UDP
 	// exchange, not name resolution, so a hung resolver would otherwise let a
 	// single Export run for the OS resolver's timeout on every attempt and blow
 	// past the item timeout. Resolve once up front (DNS is stable across retries)
 	// and query the resulting address.
-	addr, err := resolveNTPServer(server, queryTimeout)
+	dnsTimeout, err := operationTimeout(ctx, queryTimeout)
+	if err != nil {
+		return nil, 0, err
+	}
+	dnsCtx, cancel := context.WithTimeout(ctx, dnsTimeout)
+	addr, err := resolveNTPServer(dnsCtx, server)
+	cancel()
 	if err != nil {
 		return nil, 0, err
 	}
 
 	var lastErr error
+	attempts := 0
 	for try := 1; try <= maxRetries; try++ {
 		if try > 1 {
-			time.Sleep(retryBackoff)
+			if err := waitForRetry(ctx, retryBackoff); err != nil {
+				return nil, attempts, err
+			}
 		}
 
-		r, err := ntp.QueryWithOptions(addr, ntp.QueryOptions{Timeout: queryTimeout})
+		attemptTimeout, err := operationTimeout(ctx, queryTimeout)
+		if err != nil {
+			return nil, attempts, err
+		}
+
+		attempts = try
+		r, err := ntp.QueryWithOptions(addr, ntp.QueryOptions{Timeout: attemptTimeout})
 		if err != nil {
 			lastErr = err
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, attempts, ctxErr
+			}
 			continue
 		}
 		if r.IsKissOfDeath() {
@@ -132,24 +167,25 @@ func queryNTP(server string) (*ntp.Response, int, error) {
 		}
 		return r, try, nil
 	}
-	return nil, maxRetries, lastErr
+	return nil, attempts, lastErr
 }
 
 // resolveNTPServer resolves the (optionally host:port) server to an address with
 // a bounded DNS timeout. Literal IPs are returned unchanged (no lookup). Any
 // port supplied by the caller is preserved.
-func resolveNTPServer(server string, timeout time.Duration) (string, error) {
+func resolveNTPServer(ctx context.Context, server string) (string, error) {
 	host := server
 	port := ""
 	if h, p, err := net.SplitHostPort(server); err == nil {
 		host, port = h, p
 	}
-	if net.ParseIP(host) != nil {
+	ipHost := host
+	if zone := strings.LastIndexByte(ipHost, '%'); zone >= 0 {
+		ipHost = ipHost[:zone]
+	}
+	if net.ParseIP(ipHost) != nil {
 		return server, nil // already a literal IP; no DNS needed
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	var res net.Resolver
 	addrs, err := res.LookupHost(ctx, host)
@@ -163,6 +199,56 @@ func resolveNTPServer(server string, timeout time.Duration) (string, error) {
 		return net.JoinHostPort(addrs[0], port), nil
 	}
 	return addrs[0], nil
+}
+
+// requestTimeout translates Agent 2's whole-second item timeout into a local
+// deadline. The small margin lets the loadable-plugin protocol return its
+// result before Agent 2 closes the request. Standalone probes have no outer
+// Agent 2 deadline, so they use a safe bounded fallback without the margin.
+func requestTimeout(provider plugin.ContextProvider) time.Duration {
+	if provider == nil || provider.Timeout() <= 0 {
+		return standaloneRequestTimeout
+	}
+
+	timeout := time.Duration(provider.Timeout()) * time.Second
+	if timeout > agentTimeoutMargin {
+		timeout -= agentTimeoutMargin
+	}
+
+	return timeout
+}
+
+// operationTimeout caps one DNS or UDP operation by both its normal limit and
+// the time left on the overall request. QueryWithOptions has no Context field,
+// but its connection deadline honours this derived duration.
+func operationTimeout(ctx context.Context, limit time.Duration) (time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return 0, context.DeadlineExceeded
+		}
+		if remaining < limit {
+			return remaining, nil
+		}
+	}
+
+	return limit, nil
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func validateServer(server string) error {

@@ -4,23 +4,23 @@ on:
   push:
     branches: [main]
     paths:
-      - "Windows/**/*.go"
-      - "Windows/**/go.mod"
-      - "Windows/**/go.sum"
-      - "Windows/versioninfo.base.json"
-      - "Linux/**/*.go"
-      - "Linux/**/go.mod"
-      - "Linux/**/go.sum"
+      - "Windows/**"
+      - "Linux/**"
+      - "scripts/**"
+      - "plugins.json"
+      - "COMPATIBILITY.md"
+      - "README.md"
+      - "renovate.json"
       - ".github/workflows/build-plugins.yml"
   pull_request:
     paths:
-      - "Windows/**/*.go"
-      - "Windows/**/go.mod"
-      - "Windows/**/go.sum"
-      - "Windows/versioninfo.base.json"
-      - "Linux/**/*.go"
-      - "Linux/**/go.mod"
-      - "Linux/**/go.sum"
+      - "Windows/**"
+      - "Linux/**"
+      - "scripts/**"
+      - "plugins.json"
+      - "COMPATIBILITY.md"
+      - "README.md"
+      - "renovate.json"
       - ".github/workflows/build-plugins.yml"
   workflow_dispatch:
 
@@ -58,33 +58,17 @@ jobs:
           # "latest" release missing every other plugin's binary. A Zabbix Agent 2
           # loadable plugin whose System.Path .exe is absent makes the agent fail
           # to start entirely, so each release must carry the full set.
-          PLUGINS='[]'
-
-          add_plugin() {
-            local dir="$1" goos="$2" binary="$3"
-            PLUGINS=$(echo "$PLUGINS" | jq -c \
-              --arg d "$dir" --arg g "$goos" --arg b "$binary" \
-              '. += [{"dir":$d,"goos":$g,"binary":$b}]')
-          }
-
-          # Windows plugins
-          add_plugin "Windows/exchange_se"                    "windows" "zabbix-agent2-exchange-se.exe"
-          add_plugin "Windows/windows_ad_user_monitoring"     "windows" "zabbix-agent2-ad-user-monitoring.exe"
-          add_plugin "Windows/windows_application_inventory"  "windows" "zabbix-agent2-application-inventory.exe"
-          add_plugin "Windows/windows_failover_cluster"       "windows" "zabbix-agent2-windows-failover-cluster.exe"
-          add_plugin "Windows/windows_needs_reboot_check"     "windows" "zabbix-agent2-needs-reboot-check.exe"
-          add_plugin "Windows/windows_network_connections"    "windows" "zabbix-agent2-windows-network-connections.exe"
-          add_plugin "Windows/windows_ntp_sync"               "windows" "zabbix-agent2-windows-ntpsync.exe"
-          add_plugin "Windows/windows_recurring_event_Error"  "windows" "zabbix-agent2-windows-recurring-event.exe"
-          add_plugin "Windows/windows_service_listening_port" "windows" "zabbix-agent2-windows-service-listening-port.exe"
-          add_plugin "Windows/WindowsLatestUpdate"            "windows" "zabbix-agent2-windows-latest-update.exe"
-
-          # Linux plugins
-          add_plugin "Linux/linux_btg_account_check"          "linux"   "zabbix-agent2-linux-btg-account-check"
-          add_plugin "Linux/linux_needs_reboot_check"         "linux"   "zabbix-agent2-needs-reboot-check"
-          add_plugin "Linux/linux_network_connections"        "linux"   "zabbix-agent2-linux-network-connections"
-          add_plugin "Linux/linux_ntp_sync"                   "linux"   "zabbix-agent2-linux-ntp-sync"
-          add_plugin "Linux/linux_service_listening_port"     "linux"   "zabbix-agent2-linux-service-listening-port"
+          jq -e '
+            .schema == 1 and
+            (.plugins | length > 0) and
+            ((.plugins | map(.binary) | unique | length) == (.plugins | length)) and
+            all(.plugins[];
+              (.goos == "linux" or .goos == "windows") and
+              (.dir | length > 0) and (.binary | length > 0) and
+              (.conf | length > 0) and (.template | length > 0)
+            )
+          ' plugins.json >/dev/null
+          PLUGINS=$(jq -c '.plugins' plugins.json)
 
           COUNT=$(echo "$PLUGINS" | jq 'length')
           if [ "$PLUGINS" = "[]" ]; then
@@ -97,8 +81,38 @@ jobs:
             echo "expected_count=$COUNT" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  test-native:
     needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+            sums: Linux/**/go.sum
+          - platform: windows
+            runner: windows-latest
+            sums: Windows/**/go.sum
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: 1.25.9
+          cache: true
+          cache-dependency-path: ${{ matrix.sums }}
+
+      - name: Test ${{ matrix.platform }} plugins natively
+        shell: pwsh
+        run: ./scripts/Test-Plugins.ps1 -Platform ${{ matrix.platform }} -SkipBuild -SkipVet
+
+  build:
+    needs: [detect-changes, test-native]
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -249,10 +263,19 @@ jobs:
     # Never publish from a pull request; only from pushes to main / manual dispatch.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: 1.25.9
+          cache: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
@@ -273,16 +296,75 @@ jobs:
           # Refuse to publish an incomplete make_latest release: a missing
           # binary would leave users' Plugins.<name>.System.Path pointing at a
           # nonexistent .exe, which makes Zabbix Agent 2 fail to start entirely.
-          ACTUAL=$(find release -type f | wc -l)
+          ACTUAL=$(find release -maxdepth 1 -type f | wc -l)
           echo "Expected $EXPECTED binaries, found $ACTUAL."
           if [ "$ACTUAL" -ne "$EXPECTED" ]; then
             echo "::error::Release is incomplete ($ACTUAL/$EXPECTED binaries); not publishing."
             exit 1
           fi
 
+      - name: Create complete deployment packages
+        run: |
+          # Pinned to keep the generated CycloneDX format reproducible.
+          go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.10.0
+          SBOM_TOOL="$(go env GOPATH)/bin/cyclonedx-gomod"
+
+          jq -c '.plugins[]' plugins.json | while read -r plugin; do
+            dir=$(jq -r '.dir' <<<"$plugin")
+            goos=$(jq -r '.goos' <<<"$plugin")
+            binary=$(jq -r '.binary' <<<"$plugin")
+            conf=$(jq -r '.conf' <<<"$plugin")
+            template=$(jq -r '.template' <<<"$plugin")
+            slug="${binary%.exe}"
+            source_binary=$(find artifacts -type f -name "$binary" -print -quit)
+
+            if [ -z "$source_binary" ]; then
+              echo "::error::Cannot package $binary: built artifact is missing."
+              exit 1
+            fi
+
+            package_dir="$RUNNER_TEMP/package-$slug"
+            mkdir -p "$package_dir/templates"
+            cp "$source_binary" "$package_dir/$binary"
+            cp "$dir/$conf" "$package_dir/$conf"
+            cp "$dir/$template" "$package_dir/templates/$template"
+            cp COMPATIBILITY.md "$package_dir/COMPATIBILITY.md"
+
+            if [ -f "$dir/README.md" ]; then
+              cp "$dir/README.md" "$package_dir/README.md"
+            else
+              cp README.md "$package_dir/README.md"
+            fi
+
+            go version -m "$source_binary" > "$package_dir/BUILDINFO.txt"
+            (
+              cd "$dir"
+              "$SBOM_TOOL" mod -json -output "$package_dir/SBOM.cdx.json"
+            )
+
+            if [ "$goos" = "linux" ]; then
+              chmod 0750 "$package_dir/$binary"
+              tar -C "$package_dir" -czf "release/$slug.tar.gz" .
+            else
+              (
+                cd "$package_dir"
+                zip -q -r "$GITHUB_WORKSPACE/release/$slug.zip" .
+              )
+            fi
+          done
+
+          PACKAGE_COUNT=$(find release -maxdepth 1 -type f \( -name '*.zip' -o -name '*.tar.gz' \) | wc -l)
+          EXPECTED='${{ needs.detect-changes.outputs.expected_count }}'
+          if [ "$PACKAGE_COUNT" -ne "$EXPECTED" ]; then
+            echo "::error::Release packaging is incomplete ($PACKAGE_COUNT/$EXPECTED archives)."
+            exit 1
+          fi
+
+          echo "Packaged release contents:"
+          ls -lh release/
+
       - name: Generate SHA256 manifest
-        # Ship a hash manifest so operators can verify each binary on the host
-        # (and report exact hashes to Microsoft when submitting false positives).
+        # Cover raw binaries and complete deployment archives.
         working-directory: release
         run: |
           sha256sum -- * > SHA256SUMS.txt

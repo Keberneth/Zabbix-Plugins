@@ -1,8 +1,6 @@
 module windows_network_connections
 
-go 1.26
-
-toolchain go1.26.6
+go 1.25.9
 
 require (
 	golang.org/x/sys v0.47.0

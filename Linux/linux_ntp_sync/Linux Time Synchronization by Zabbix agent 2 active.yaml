@@ -7,6 +7,9 @@ zabbix_export:
     - uuid: 81aa0288feba426b989747e920bdd541
       template: 'Linux Time Synchronization by Zabbix agent 2 active'
       name: 'Linux Time Synchronization by Zabbix agent 2 active'
+      vendor:
+        name: Keberneth
+        version: 7.0-1
       description: |
         Verifies that the local clock is correct by measuring the offset against a reference NTP
         server, via the Go plugin "LinuxNTPSync" (item key linux.ntp.sync[server]).

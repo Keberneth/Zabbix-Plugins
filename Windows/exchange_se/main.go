@@ -22,6 +22,8 @@ const (
 	pluginVersion     = "1.0.0"
 	metricStatusJSON  = "exchange.se.status"
 	powerShellTimeout = 100 * time.Second
+	timeoutMargin     = time.Second
+	minimumTimeout    = 100 * time.Millisecond
 	cacheTTL          = 30 * time.Minute
 )
 
@@ -652,7 +654,7 @@ func maybeRunStandalone(args []string) (int, bool) {
 		return 0, false
 	}
 
-	payload, err := collectLive()
+	payload, err := collectLive(powerShellTimeout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		return 1, true
@@ -700,7 +702,7 @@ func run() error {
 	return nil
 }
 
-func (p *exchangePlugin) Export(key string, params []string, _ plugin.ContextProvider) (any, error) {
+func (p *exchangePlugin) Export(key string, params []string, ctx plugin.ContextProvider) (any, error) {
 	if key != metricStatusJSON {
 		return nil, errs.Errorf("unknown item key %q", key)
 	}
@@ -709,7 +711,7 @@ func (p *exchangePlugin) Export(key string, params []string, _ plugin.ContextPro
 		return nil, errs.Errorf("%s does not accept parameters", metricStatusJSON)
 	}
 
-	payload, err := collectLive()
+	payload, err := collectLive(effectiveTimeout(contextTimeout(ctx), powerShellTimeout))
 	if err == nil {
 		p.storeCache(payload)
 		return payload, nil
@@ -722,8 +724,8 @@ func (p *exchangePlugin) Export(key string, params []string, _ plugin.ContextPro
 	return nil, err
 }
 
-func collectLive() (string, error) {
-	commandCtx, cancel := context.WithTimeout(context.Background(), powerShellTimeout)
+func collectLive(collectionTimeout time.Duration) (string, error) {
+	commandCtx, cancel := context.WithTimeout(context.Background(), collectionTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(
@@ -752,7 +754,7 @@ func collectLive() (string, error) {
 
 	err := cmd.Run()
 	if commandCtx.Err() == context.DeadlineExceeded {
-		return "", errs.Errorf("powershell collection timed out after %s", powerShellTimeout)
+		return "", errs.Errorf("powershell collection timed out after %s", collectionTimeout)
 	}
 
 	if err != nil {
@@ -767,6 +769,36 @@ func collectLive() (string, error) {
 	}
 
 	return enrichPayload(stdout.Bytes(), "live", "", 0)
+}
+
+func contextTimeout(ctx plugin.ContextProvider) int {
+	if ctx == nil {
+		return 0
+	}
+
+	return ctx.Timeout()
+}
+
+// effectiveTimeout keeps the existing collector timeout as a hard cap while
+// leaving the agent about one second to receive and encode the plugin result.
+func effectiveTimeout(agentTimeoutSeconds int, hardCap time.Duration) time.Duration {
+	if hardCap <= 0 {
+		hardCap = minimumTimeout
+	}
+	if agentTimeoutSeconds <= 0 {
+		return hardCap
+	}
+
+	agentTimeout := time.Duration(agentTimeoutSeconds) * time.Second
+	available := agentTimeout - timeoutMargin
+	if available <= 0 {
+		available = minimumTimeout
+	}
+	if available < hardCap {
+		return available
+	}
+
+	return hardCap
 }
 
 func resolvePowerShellPath() string {

@@ -22,7 +22,7 @@ import (
 const (
 	pluginName = "WinEventRecurring"
 
-	metricKey = "winevent.recurring"
+	metricKey   = "winevent.recurring"
 	metricDescr = "Returns recurring Critical/Error Windows event-log signatures as a JSON array " +
 		"(winevent.recurring[logs,period,maxEvents,minCount])."
 
@@ -32,6 +32,8 @@ const (
 	defaultMinCount  = 2
 
 	defaultTimeout = 25 * time.Second
+	timeoutMargin  = time.Second
+	minimumTimeout = 100 * time.Millisecond
 	cacheTTL       = 30 * time.Minute
 )
 
@@ -84,7 +86,7 @@ func run() error {
 	return nil
 }
 
-func (p *winEventRecurringPlugin) Export(key string, params []string, _ plugin.ContextProvider) (any, error) {
+func (p *winEventRecurringPlugin) Export(key string, params []string, ctx plugin.ContextProvider) (any, error) {
 	if key != metricKey {
 		return nil, errs.Errorf("unknown item key %q", key)
 	}
@@ -96,7 +98,14 @@ func (p *winEventRecurringPlugin) Export(key string, params []string, _ plugin.C
 
 	sig := cacheSignature(logs, period, maxEvents, minCount, ignore)
 
-	payload, err := p.collect(logs, period, maxEvents, minCount, ignore)
+	payload, err := p.collect(
+		logs,
+		period,
+		maxEvents,
+		minCount,
+		ignore,
+		effectiveTimeout(contextTimeout(ctx), exportTimeout()),
+	)
 	if err == nil {
 		p.storeCache(sig, payload)
 		return payload, nil
@@ -113,8 +122,14 @@ func (p *winEventRecurringPlugin) Export(key string, params []string, _ plugin.C
 	return nil, err
 }
 
-func (p *winEventRecurringPlugin) collect(logs []string, period time.Duration, maxEvents, minCount int, ignore string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), exportTimeout())
+func (p *winEventRecurringPlugin) collect(
+	logs []string,
+	period time.Duration,
+	maxEvents, minCount int,
+	ignore string,
+	collectionTimeout time.Duration,
+) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), collectionTimeout)
 	defer cancel()
 
 	groups, err := FindRecurringEvents(ctx, logs, period, maxEvents, minCount, ignore)
@@ -259,6 +274,36 @@ func exportTimeout() time.Duration {
 		}
 	}
 	return defaultTimeout
+}
+
+func contextTimeout(ctx plugin.ContextProvider) int {
+	if ctx == nil {
+		return 0
+	}
+
+	return ctx.Timeout()
+}
+
+// effectiveTimeout keeps the configured collector timeout as a hard cap while
+// leaving the agent about one second to receive and encode the plugin result.
+func effectiveTimeout(agentTimeoutSeconds int, hardCap time.Duration) time.Duration {
+	if hardCap <= 0 {
+		hardCap = minimumTimeout
+	}
+	if agentTimeoutSeconds <= 0 {
+		return hardCap
+	}
+
+	agentTimeout := time.Duration(agentTimeoutSeconds) * time.Second
+	available := agentTimeout - timeoutMargin
+	if available <= 0 {
+		available = minimumTimeout
+	}
+	if available < hardCap {
+		return available
+	}
+
+	return hardCap
 }
 
 func printStandaloneUsage() {

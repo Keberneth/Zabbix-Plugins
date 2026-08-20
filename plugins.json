@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "zabbix": {
+    "agent2": "7.0.28",
+    "protocol": "6.4.0",
+    "sdk": "v1.2.2-0.20260513084934-aa676675694e"
+  },
+  "plugins": [
+    {
+      "dir": "Windows/exchange_se",
+      "goos": "windows",
+      "binary": "zabbix-agent2-exchange-se.exe",
+      "conf": "zabbix-agent2-ExchangeSE.conf",
+      "template": "Microsoft Exchange SE by Zabbix Agent 2 Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_ad_user_monitoring",
+      "goos": "windows",
+      "binary": "zabbix-agent2-ad-user-monitoring.exe",
+      "conf": "zabbix-agent2-ADUserMonitoring.conf",
+      "template": "AD DS User Monitoring Agent Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_application_inventory",
+      "goos": "windows",
+      "binary": "zabbix-agent2-application-inventory.exe",
+      "conf": "zabbix-agent2-application-inventory.conf",
+      "template": "Windows Application Inventory Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_failover_cluster",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-failover-cluster.exe",
+      "conf": "zabbix-agent2-WindowsFailoverCluster.conf",
+      "template": "Windows Failover Cluster by Zabbix Agent 2 Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_needs_reboot_check",
+      "goos": "windows",
+      "binary": "zabbix-agent2-needs-reboot-check.exe",
+      "conf": "zabbix-agent2-windows-needs-reboot-check.conf",
+      "template": "Windows Reboot Check Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_network_connections",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-network-connections.exe",
+      "conf": "windows-network-connections.conf",
+      "template": "Windows Network Map Zabbix  Agent  Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_ntp_sync",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-ntpsync.exe",
+      "conf": "zabbix-agent2-windows-ntpsync.conf",
+      "template": "Windows Time Synchronization by Zabbix agent 2 active.yaml"
+    },
+    {
+      "dir": "Windows/windows_recurring_event_Error",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-recurring-event.exe",
+      "conf": "zabbix-agent2-windows-recurring-event.conf",
+      "template": "Windows Recurring Event Error Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Windows/windows_service_listening_port",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-service-listening-port.exe",
+      "conf": "zabbix-agent2-windows-service-listening-port.conf",
+      "template": "Windows Service Listning Port Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Windows/WindowsLatestUpdate",
+      "goos": "windows",
+      "binary": "zabbix-agent2-windows-latest-update.exe",
+      "conf": "zabbix-agent2-WindowsLatestUpdate.conf",
+      "template": "Windows Latest CU Update Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Linux/linux_btg_account_check",
+      "goos": "linux",
+      "binary": "zabbix-agent2-linux-btg-account-check",
+      "conf": "zabbix-agent2-linux-btg-account-check.conf",
+      "template": "Linux BTG Account Check by Zabbix agent 2 active.yaml"
+    },
+    {
+      "dir": "Linux/linux_needs_reboot_check",
+      "goos": "linux",
+      "binary": "zabbix-agent2-needs-reboot-check",
+      "conf": "zabbix-agent2-linux-needs-reboot-check.conf",
+      "template": "Linux Reboot Check Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Linux/linux_network_connections",
+      "goos": "linux",
+      "binary": "zabbix-agent2-linux-network-connections",
+      "conf": "zabbix-agent2-linux-network-connections.conf",
+      "template": "Linux Network Map Zabbix Agent Active.yaml"
+    },
+    {
+      "dir": "Linux/linux_ntp_sync",
+      "goos": "linux",
+      "binary": "zabbix-agent2-linux-ntp-sync",
+      "conf": "zabbix-agent2-linux-ntp-sync.conf",
+      "template": "Linux Time Synchronization by Zabbix agent 2 active.yaml"
+    },
+    {
+      "dir": "Linux/linux_service_listening_port",
+      "goos": "linux",
+      "binary": "zabbix-agent2-linux-service-listening-port",
+      "conf": "zabbix-agent2-linux-service-listening-port.conf",
+      "template": "Linux Service Listning Port Zabbix Agent Active.yaml"
+    }
+  ]
+}

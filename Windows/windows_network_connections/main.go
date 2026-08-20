@@ -7,15 +7,18 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sys/windows"
-	"golang.zabbix.com/sdk/plugin"
-	"golang.zabbix.com/sdk/plugin/container"
 	"net"
 	"os"
 	"sort"
 	"strconv"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
+	"golang.zabbix.com/sdk/errs"
+	"golang.zabbix.com/sdk/plugin"
+	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 const (
@@ -62,21 +65,44 @@ func (p *impl) logf(format string, args ...interface{}) {
 
 func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, plugin.UnsupportedMetricError
+		return nil, errs.WrapConst(errs.Errorf("unknown metric %q", key), zbxerr.ErrorUnsupportedMetric)
+	}
+	if len(params) != 0 {
+		return nil, errs.WrapConst(
+			errs.Errorf("metric %q accepts no parameters", key),
+			zbxerr.ErrorTooManyParameters,
+		)
 	}
 
-	out, err := buildPayload()
+	result, err := collectNetworkPayload(buildPayload, json.Marshal)
 	if err != nil {
 		p.logf("[%s] %v", pluginName, err)
-		// Script prints JSON even if empty
-		return `{"openports":[],"incomingconnections":[],"outgoingconnections":[],"timestamp":"0"}`, nil
+		return nil, err
 	}
 
-	b, err := json.Marshal(out)
+	return result, nil
+}
+
+type networkPayloadBuilder func() (*payload, error)
+type networkPayloadMarshaler func(v any) ([]byte, error)
+
+func collectNetworkPayload(build networkPayloadBuilder, marshal networkPayloadMarshaler) (string, error) {
+	out, err := build()
 	if err != nil {
-		p.logf("[%s] JSON marshal error: %v", pluginName, err)
-		return `{"openports":[],"incomingconnections":[],"outgoingconnections":[],"timestamp":"0"}`, nil
+		return "", errs.WrapConst(
+			errs.Wrap(err, "failed to collect Windows network connections"),
+			zbxerr.ErrorCannotFetchData,
+		)
 	}
+
+	b, err := marshal(out)
+	if err != nil {
+		return "", errs.WrapConst(
+			errs.Wrap(err, "failed to encode Windows network connections"),
+			zbxerr.ErrorCannotMarshalJSON,
+		)
+	}
+
 	return string(b), nil
 }
 
@@ -84,9 +110,13 @@ func main() {
 	for _, a := range os.Args[1:] {
 		if a == "--standalone" || a == "-standalone" || a == "standalone" {
 			p := &impl{}
-			v, _ := p.Export(metricKey, nil, nil)
+			v, err := p.Export(metricKey, nil, nil)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
 			fmt.Println(v)
-			os.Exit(0)
+			return
 		}
 	}
 

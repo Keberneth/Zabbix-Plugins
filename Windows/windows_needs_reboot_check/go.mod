@@ -1,8 +1,6 @@
 module windows_needs_reboot_check
 
-go 1.26
-
-toolchain go1.26.6
+go 1.25.9
 
 require (
 	github.com/go-ole/go-ole v1.3.0

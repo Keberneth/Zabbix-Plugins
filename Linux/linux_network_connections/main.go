@@ -18,6 +18,7 @@ import (
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 const (
@@ -52,10 +53,10 @@ type outgoingConn struct {
 }
 
 type output struct {
-	OpenPorts           []openPort    `json:"openports"`
+	OpenPorts           []openPort     `json:"openports"`
 	IncomingConnections []incomingConn `json:"incomingconnections"`
 	OutgoingConnections []outgoingConn `json:"outgoingconnections"`
-	Timestamp           string        `json:"timestamp"`
+	Timestamp           string         `json:"timestamp"`
 }
 
 func main() {
@@ -111,7 +112,10 @@ func (p *LinuxNetworkConnectionsPlugin) logf(format string, args ...interface{})
 
 func (p *LinuxNetworkConnectionsPlugin) Export(key string, params []string, ctx plugin.ContextProvider) (interface{}, error) {
 	if key != itemKey {
-		return nil, plugin.UnsupportedMetricError
+		return nil, errs.Wrapf(zbxerr.ErrorUnsupportedMetric, "unknown metric %q", key)
+	}
+	if len(params) != 0 {
+		return nil, errs.Wrapf(zbxerr.ErrorTooManyParameters, "metric %q accepts no parameters", key)
 	}
 
 	out, err := collect()

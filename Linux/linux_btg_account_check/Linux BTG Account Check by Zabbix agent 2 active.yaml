@@ -7,6 +7,9 @@ zabbix_export:
     - uuid: 6c1d9a7e4b2f43c8a9e0d1c2b3a4f5e6
       template: 'Linux BTG Account Check by Zabbix agent 2 active'
       name: 'Linux BTG Account Check by Zabbix agent 2 active'
+      vendor:
+        name: Keberneth
+        version: 7.0-1
       description: |
         Detects authentication by emergency / break-the-glass (BTG) accounts in a Linux auth log,
         via the Go plugin "BTGAccountCheck" (item key btg.account.check.log).

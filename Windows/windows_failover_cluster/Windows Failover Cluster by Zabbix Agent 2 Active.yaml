@@ -244,6 +244,7 @@ zabbix_export:
           type: ZABBIX_ACTIVE
           key: wfc.cluster.status
           delay: '{$WFC.COLLECT.INTERVAL}'
+          history: '0'
           value_type: TEXT
           trends: '0'
           description: |

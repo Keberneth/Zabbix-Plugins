@@ -19,6 +19,7 @@ import (
 	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 )
 
 const (
@@ -128,9 +129,12 @@ func runStandalone(verbose bool) string {
 	return "0"
 }
 
-func (p *NeedsRebootCheckPlugin) Export(key string, _ []string, _ plugin.ContextProvider) (interface{}, error) {
+func (p *NeedsRebootCheckPlugin) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, errs.Errorf("unknown item key %q", key)
+		return nil, errs.Wrapf(zbxerr.ErrorUnsupportedMetric, "unknown metric %q", key)
+	}
+	if len(params) != 0 {
+		return nil, errs.Wrapf(zbxerr.ErrorTooManyParameters, "metric %q accepts no parameters", key)
 	}
 
 	pending, reasons, err := isRebootPendingDetailed()

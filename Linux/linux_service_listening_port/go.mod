@@ -1,8 +1,6 @@
 module linux_service_listening_port
 
-go 1.26
-
-toolchain go1.26.6
+go 1.25.9
 
 require golang.zabbix.com/sdk v1.2.2-0.20260513084934-aa676675694e
 

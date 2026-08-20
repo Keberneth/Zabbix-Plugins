@@ -12,7 +12,7 @@
     "CompanyName": "Keberneth / Zabbix-Plugins",
     "FileDescription": "Read-only Zabbix Agent 2 monitoring plugin",
     "InternalName": "zabbix-agent2-plugin",
-    "LegalCopyright": "MIT License - https://github.com/Keberneth/Zabbix-Plugins",
+    "LegalCopyright": "Copyright Keberneth / Zabbix-Plugins contributors",
     "OriginalFilename": "zabbix-agent2-plugin.exe",
     "ProductName": "Zabbix Agent 2 Monitoring Plugins",
     "ProductVersion": "1.0.0",

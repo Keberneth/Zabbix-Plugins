@@ -9,12 +9,19 @@
   "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
     {
+      "description": "Agent 2 SDK must be aligned manually with the exact deployed Zabbix patch",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["golang.zabbix.com/sdk"],
+      "enabled": false
+    },
+    {
       "matchManagers": ["github-actions"],
       "pinDigests": true,
       "groupName": "github-actions"
     },
     {
       "matchManagers": ["gomod"],
+      "excludePackageNames": ["golang.zabbix.com/sdk"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "go modules (minor & patch)"
     },

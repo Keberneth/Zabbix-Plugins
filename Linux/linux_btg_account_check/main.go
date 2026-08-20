@@ -46,6 +46,11 @@ type BTGPlugin struct {
 	ded     *deduper
 	dedOnce sync.Once
 
+	// The checkpoint is a read/scan/write transaction. Serialize it so two
+	// concurrent item requests cannot both load the same offset and then let the
+	// slower request overwrite a newer checkpoint.
+	processMu sync.Mutex
+
 	// checkpoint dir permission check caching (keyed by checkpointDir)
 	checkpointCacheMu sync.Mutex
 	checkpointOK      map[string]error // nil error == OK, non-nil == last observed error
@@ -59,9 +64,10 @@ type checkpoint struct {
 
 // in-memory deduper
 type deduper struct {
-	mu   sync.Mutex
-	last map[string]int64
-	ttl  int64
+	mu        sync.Mutex
+	last      map[string]int64
+	ttl       int64
+	lastPrune int64
 }
 
 func newDeduper(ttl int64) *deduper {
@@ -72,35 +78,25 @@ func (d *deduper) shouldSend(key string) bool {
 	now := time.Now().Unix()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// Prune opportunistically during normal item execution. This avoids a
+	// background goroutine whose lifetime cannot be tied to ContextProvider:
+	// that interface exposes a timeout, not a long-lived cancellation context.
+	if d.ttl > 0 && (d.lastPrune == 0 || now-d.lastPrune >= d.ttl) {
+		pruneAfter := d.ttl * 2
+		for k, ts := range d.last {
+			if now-ts > pruneAfter {
+				delete(d.last, k)
+			}
+		}
+		d.lastPrune = now
+	}
+
 	if t, ok := d.last[key]; ok && now-t <= d.ttl {
 		return false
 	}
 	d.last[key] = now
 	return true
-}
-
-func (d *deduper) startJanitor(ctx context.Context) {
-	if d.ttl <= 0 {
-		return
-	}
-	pruneAfter := d.ttl * 2
-	ticker := time.NewTicker(time.Duration(d.ttl) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now().Unix()
-			d.mu.Lock()
-			for k, ts := range d.last {
-				if now-ts > pruneAfter {
-					delete(d.last, k)
-				}
-			}
-			d.mu.Unlock()
-		}
-	}
 }
 
 // actor-focused matchers
@@ -113,7 +109,9 @@ var (
 )
 
 func init() {
-	plugin.RegisterMetrics(&impl, "BTGAccountCheck", metricKey, "Report detections of BTG accounts in a secure log file. Params: <logfile> <comma-separated-accounts>.")
+	if err := plugin.RegisterMetrics(&impl, "BTGAccountCheck", metricKey, "Report detections of BTG accounts in a secure log file. Params: <logfile> <comma-separated-accounts>."); err != nil {
+		panic(fmt.Errorf("register BTG metrics: %w", err))
+	}
 	impl.checkpointOK = make(map[string]error)
 
 	// actor-centric regexes (group 1 should be the actor/initiator when present)
@@ -149,16 +147,12 @@ func init() {
 	}
 }
 
-func getContextFromProvider(cp plugin.ContextProvider) context.Context {
-	if cp == nil {
-		return context.Background()
+func contextFromProvider(cp plugin.ContextProvider) (context.Context, context.CancelFunc) {
+	if cp == nil || cp.Timeout() <= 0 {
+		return context.Background(), func() {}
 	}
-	if cprov, ok := cp.(interface{ Context() context.Context }); ok {
-		if c := cprov.Context(); c != nil {
-			return c
-		}
-	}
-	return context.Background()
+
+	return context.WithTimeout(context.Background(), time.Duration(cp.Timeout())*time.Second)
 }
 
 func (p *BTGPlugin) Export(key string, params []string, ctx plugin.ContextProvider) (interface{}, error) {
@@ -166,13 +160,23 @@ func (p *BTGPlugin) Export(key string, params []string, ctx plugin.ContextProvid
 		return nil, errs.Errorf("unknown key %q", key)
 	}
 
-	// Expect at least 2 params: logfile, accounts
-	if len(params) < 2 {
-		return fmt.Sprintf("usage: %s <logfile> <account1[,account2,...]>", metricKey), nil
+	// This item intentionally returns operational failures as strings because the
+	// supplied template triggers on the "ERROR:" prefix.
+	if len(params) != 2 {
+		return fmt.Sprintf("ERROR: %s expects exactly 2 parameters (logfile and comma-separated accounts); got %d", metricKey, len(params)), nil
 	}
 
-	path := params[0]
+	path := strings.TrimSpace(params[0])
 	accounts := splitAndTrim(params[1], ",")
+	if path == "" {
+		return "ERROR: logfile parameter must not be empty", nil
+	}
+	if len(accounts) == 0 {
+		return "ERROR: accounts parameter must contain at least one account", nil
+	}
+
+	itemCtx, cancel := contextFromProvider(ctx)
+	defer cancel()
 
 	// Options from env:
 	checkpointDir := os.Getenv("CHECKPOINT_DIR")
@@ -194,13 +198,13 @@ func (p *BTGPlugin) Export(key string, params []string, ctx plugin.ContextProvid
 		}
 	}
 
-	// initialize in-memory deduper once per plugin instance, use plugin context for janitor
+	// Initialize the in-memory deduper once per plugin instance. Expired entries
+	// are pruned opportunistically by shouldSend.
 	p.dedOnce.Do(func() {
 		p.ded = newDeduper(int64(dedupSec))
-		go p.ded.startJanitor(getContextFromProvider(ctx))
 	})
 
-	found, messages, err := p.processOnce(path, accounts, checkpointDir)
+	found, messages, err := p.processOnce(itemCtx, path, accounts, checkpointDir)
 	if err != nil {
 		log.Printf("ERROR: %v", err)
 		// A non-fatal error (e.g. a checkpoint-save failure) must never discard a
@@ -249,10 +253,15 @@ func (p *BTGPlugin) cacheCheckpointDirResult(checkpointDir string, err error) {
 	p.checkpointOK[checkpointDir] = err
 }
 
-//
 // processOnce no longer accepts dedupTTL (deduper is part of the plugin)
-//
-func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir string) (bool, []string, error) {
+func (p *BTGPlugin) processOnce(ctx context.Context, path string, accounts []string, checkpointDir string) (bool, []string, error) {
+	p.processMu.Lock()
+	defer p.processMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return false, nil, fmt.Errorf("item work canceled before scan: %w", err)
+	}
+
 	info, err := os.Stat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -322,7 +331,13 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 
 	var messages []string
 	var scanned int64
+	var workErr error
 	for {
+		if err := ctx.Err(); err != nil {
+			workErr = fmt.Errorf("item work canceled while scanning: %w", err)
+			break
+		}
+
 		line, truncated, consumed, rerr := readBoundedLine(r, maxLineBytes)
 		if rerr != nil && rerr != io.EOF {
 			return false, nil, fmt.Errorf("read failed: %v", rerr)
@@ -350,6 +365,13 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 			}
 		}
 
+		// A regular-file read cannot be interrupted midway, so check again after
+		// each complete line. We still save the exact consumed offset below.
+		if err := ctx.Err(); err != nil {
+			workErr = fmt.Errorf("item work canceled while scanning: %w", err)
+			break
+		}
+
 		if rerr == io.EOF {
 			break
 		}
@@ -366,6 +388,9 @@ func (p *BTGPlugin) processOnce(path string, accounts []string, checkpointDir st
 	if err := saveCheckpointForPath(checkpointDir, path, fileID, offset); err != nil {
 		// not fatal, include warning in returned error
 		return len(messages) > 0, messages, fmt.Errorf("failed to save checkpoint: %v", err)
+	}
+	if workErr != nil {
+		return len(messages) > 0, messages, workErr
 	}
 
 	return len(messages) > 0, messages, nil
@@ -500,10 +525,10 @@ func loadCheckpointForPath(checkpointDir, path string) (offset int64, fileID str
 }
 
 // matchActorInText: actor-focused matching.
-// - Ignore lines matching negativeRegexes.
-// - For each actorRegex, if it captures an actor in group 1, compare actor to monitored accounts.
-// - Suppress matches that are clearly post-su/sudo/systemd-user child-session lines where the child reports itself as the actor
-//   (examples: pam_unix(su-l:session): session opened for user root(...) by root(...)).
+//   - Ignore lines matching negativeRegexes.
+//   - For each actorRegex, if it captures an actor in group 1, compare actor to monitored accounts.
+//   - Suppress matches that are clearly post-su/sudo/systemd-user child-session lines where the child reports itself as the actor
+//     (examples: pam_unix(su-l:session): session opened for user root(...) by root(...)).
 func matchActorInText(line string, accounts []string) (bool, string) {
 	// negative checks first
 	for _, nr := range negativeRegexes {
@@ -524,8 +549,8 @@ func matchActorInText(line string, accounts []string) (bool, string) {
 	// child process as the actor after a successful sudo/su transition; we suppress
 	// actor==target matches for those to avoid false positives.
 	childPrefixes := []string{
-		"su",          // su, su-l, su:session
-		"sudo",        // sudo:session
+		"su",           // su, su-l, su:session
+		"sudo",         // sudo:session
 		"systemd-user", // systemd-user:session
 	}
 

@@ -8,8 +8,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"golang.zabbix.com/sdk/errs"
 	"golang.zabbix.com/sdk/plugin"
 	"golang.zabbix.com/sdk/plugin/container"
+	"golang.zabbix.com/sdk/zbxerr"
 	"os"
 	"os/exec"
 	"regexp"
@@ -33,8 +35,8 @@ const (
 var reUser = regexp.MustCompile(`\("([^"]+)",pid=(\d+)`)
 
 type listeningPortEntry struct {
-	Port        int   `json:"Port"`
-	PID         *int  `json:"PID"`
+	Port        int    `json:"Port"`
+	PID         *int   `json:"PID"`
 	Process     string `json:"Process"`
 	ServiceName string `json:"ServiceName"`
 	Description string `json:"Description"`
@@ -54,7 +56,10 @@ func (p *impl) logf(format string, args ...interface{}) {
 
 func (p *impl) Export(key string, params []string, _ plugin.ContextProvider) (interface{}, error) {
 	if key != metricKey {
-		return nil, plugin.UnsupportedMetricError
+		return nil, errs.Wrapf(zbxerr.ErrorUnsupportedMetric, "unknown metric %q", key)
+	}
+	if len(params) != 0 {
+		return nil, errs.Wrapf(zbxerr.ErrorTooManyParameters, "metric %q accepts no parameters", key)
 	}
 
 	out, err := collectListeningPorts()
@@ -188,7 +193,6 @@ func collectListeningPorts() ([]listeningPortEntry, error) {
 		} else if strings.Contains(serviceName, "apache2") || strings.Contains(serviceName, "httpd") {
 			description = "Apache HTTP Server"
 		}
-
 
 		// Fallback to manual port map.
 		if description == "" {

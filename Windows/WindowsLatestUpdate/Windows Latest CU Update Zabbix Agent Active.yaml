@@ -16,9 +16,15 @@ zabbix_export:
       items:
         - uuid: 1ed3eb2fa41b43679d95f801cc738e26
           name: 'Windows Latest CU Installed'
-          type: ZABBIX_ACTIVE
+          type: DEPENDENT
           key: wlu.update.installed
-          delay: 1d
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.Installed
+          master_item:
+            key: wlu.update.status
           triggers:
             - uuid: 381a02edc58f4c6b9a758a12f5fdb354
               expression: 'last(/Windows Latest CU Update Zabbix Agent Active/wlu.update.installed)<>0'
@@ -31,9 +37,15 @@ zabbix_export:
               description: 'No Windows Update status received within {$WLU.NODATA}; the patch-compliance check is blind on this host.'
         - uuid: 82bd1050ef40405cb3ac013a0cb29b72
           name: 'Windows Previous Month CU Installed'
-          type: ZABBIX_ACTIVE
+          type: DEPENDENT
           key: wlu.update.installed.previous
-          delay: 1d
+          delay: '0'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.Installed
+          master_item:
+            key: wlu.update.status.previous
           triggers:
             - uuid: 6dcab9e974c74ab6aefaf66658a0cc79
               expression: 'last(/Windows Latest CU Update Zabbix Agent Active/wlu.update.installed.previous)<>0'
@@ -47,6 +59,16 @@ zabbix_export:
           history: 10d
           value_type: TEXT
           trends: '0'
+          timeout: 70s
+        - uuid: d42e1e0b2dc84de6a3cb7cd27c9afe91
+          name: 'Windows Previous Month CU Status'
+          type: ZABBIX_ACTIVE
+          key: wlu.update.status.previous
+          delay: 1d
+          history: 10d
+          value_type: TEXT
+          trends: '0'
+          timeout: 70s
       macros:
         - macro: '{$WLU.NODATA}'
           value: 3d

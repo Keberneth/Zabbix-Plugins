@@ -29,6 +29,7 @@ zabbix_export:
           type: ZABBIX_ACTIVE
           key: exchange.se.status
           delay: '{$EXCH.COLLECT.INTERVAL}'
+          history: '0'
           value_type: TEXT
           trends: '0'
           description: |
